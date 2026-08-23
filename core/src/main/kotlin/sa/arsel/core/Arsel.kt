@@ -51,12 +51,27 @@ public object Arsel {
     @JvmStatic
     public var fcmBridge: FcmBridge? = null
 
+    /**
+     * Why the SDK refused to start, or null. See [initialize].
+     */
+    @Volatile
+    private var configError: String? = null
+
     /** Idempotent. Call once from Application.onCreate(). */
     @JvmStatic
     public fun initialize(
         context: Context,
         config: ArselConfig,
     ) {
+        // Declines rather than throws. This runs from Application.onCreate, so a config mistake
+        // that propagated would take the host app down at launch — for a fault that should cost
+        // telemetry, not a session. The reason stays readable via [diagnostics].
+        config.validationError()?.let { problem ->
+            configError = problem
+            Log.e(TAG, "not started — $problem")
+            return
+        }
+        configError = null
         runCatching {
             Registry.init(context, config)
             warnIfFirebaseMissing()
@@ -91,6 +106,9 @@ public object Arsel {
      */
     @JvmStatic
     public fun diagnostics(): ArselDiagnostics? {
+        // A refused start is exactly when an integrator reaches for this, so it answers with the
+        // reason instead of the null that means "you haven't called initialize() yet".
+        configError?.let { return Diagnostics.configRefused(it) }
         if (!Registry.initialized) return null
         return runCatching {
             Diagnostics.collect(Registry.appContext, Registry.config, Registry.store, Registry.state)

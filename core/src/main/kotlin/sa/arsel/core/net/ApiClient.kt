@@ -4,11 +4,11 @@ import sa.arsel.core.BuildConfig
 import sa.arsel.core.log.ArselLog
 import java.io.BufferedReader
 import java.io.InputStream
+import java.net.HttpURLConnection
 import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
-import javax.net.ssl.HttpsURLConnection
 
 /**
  * Minimal zero-dependency HTTPS JSON client (no OkHttp). MUST be called off the main thread.
@@ -45,11 +45,14 @@ internal class ApiClient(
         extraHeaders: Map<String, String> = emptyMap(),
         authenticated: Boolean = false,
     ): Response {
-        var conn: HttpsURLConnection? = null
+        var conn: HttpURLConnection? = null
         return try {
-            // baseUrl is HTTPS-validated in ArselConfig.Builder.build()
+            // HttpURLConnection, not HttpsURLConnection: a loopback baseUrl is allowed over
+            // plain http for local development, and http yields the non-TLS subclass. Casting to
+            // the TLS one throws ClassCastException, which this method would then swallow as a
+            // network error and retry forever.
             conn =
-                (URL(baseUrl + path).openConnection() as HttpsURLConnection).apply {
+                (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     connectTimeout = timeoutMs.toInt()
                     readTimeout = timeoutMs.toInt()
@@ -85,7 +88,7 @@ internal class ApiClient(
      * Conditional GET, for the in-app message catalogue.
      *
      * A separate method rather than a mode flag on [post]: `doOutput = true` there forces POST
-     * semantics onto HttpsURLConnection, so that method cannot be coerced into a GET even with an
+     * semantics onto HttpURLConnection, so that method cannot be coerced into a GET even with an
      * empty body. This is also the only request in the SDK whose 304 is a success.
      */
     fun get(
@@ -93,10 +96,10 @@ internal class ApiClient(
         extraHeaders: Map<String, String> = emptyMap(),
         authenticated: Boolean = false,
     ): Response {
-        var conn: HttpsURLConnection? = null
+        var conn: HttpURLConnection? = null
         return try {
             conn =
-                (URL(baseUrl + path).openConnection() as HttpsURLConnection).apply {
+                (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
                     connectTimeout = timeoutMs.toInt()
                     readTimeout = timeoutMs.toInt()

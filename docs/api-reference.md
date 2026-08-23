@@ -25,7 +25,7 @@ still will.
 | | Default | |
 | --- | --- | --- |
 | `clientKey` | — | The org's publishable `pub_…` key. Safe in an APK. Blank throws |
-| `baseUrl` | — | **HTTPS enforced**; anything else throws. Trailing slashes trimmed |
+| `baseUrl` | — | **HTTPS enforced**; anything else throws. `http://localhost`, `http://127.0.0.1` and the emulator's `http://10.0.2.2` are the exceptions, for a local backend. Trailing slashes trimmed |
 | `.defaultChannel(id, name)` | `arsel_default` / `Notifications` | Created at `initialize()` |
 | `.smallIcon(resId)` | app icon | White-on-transparent silhouette |
 | `.notificationColor(color)` | none | Accent colour |
@@ -34,6 +34,9 @@ still will.
 
 `build()` throws `IllegalArgumentException` for a blank `clientKey` or a non-HTTPS `baseUrl` — the
 two things that would otherwise fail silently on every call.
+
+Developing against a backend on your own machine? Use `http://10.0.2.2:8076` from an emulator —
+`localhost` inside the emulator is the emulator itself, not your host.
 
 ---
 
@@ -236,6 +239,33 @@ machinery, and initialization follows each platform's idiom).
 | Support snapshot | `diagnostics()` | `diagnostics()` |
 
 ---
+
+
+### Invalid configuration
+
+All three SDKs apply the same four rules, in the same order, and all three respond the same way:
+they **log an error, decline to start, and never throw**.
+
+1. `clientKey` is non-blank
+2. `clientKey` begins `pub_` — the check that catches a secret API key shipped inside an app bundle
+3. `baseUrl` is HTTPS, except plain http to `localhost` / `127.0.0.1` (and `10.0.2.2` on Android,
+   the only address an emulator can reach the developer's host on)
+4. `baseUrl` parses as a URL
+
+Nothing is collected while a config error stands, and no call has any effect. The reason is
+readable at any time from the support snapshot:
+
+| SDK | Reading it |
+| --- | --- |
+| Android | `Arsel.diagnostics()?.configError` |
+| Web | `(await Arsel.diagnostics()).configError` |
+| iOS | `Arsel.diagnostics()?.configError` |
+
+Refusing rather than throwing is deliberate. The mistake is made at development time but the
+failure lands at runtime on a user's device — the key may come from a build variant, a remote
+config, or a CI secret that arrived empty — and an analytics SDK crashing an app over its own
+configuration is a worse outcome than losing telemetry. `diagnostics()` answers with the reason
+even before initialization, which is the state it describes.
 
 ## Network calls
 

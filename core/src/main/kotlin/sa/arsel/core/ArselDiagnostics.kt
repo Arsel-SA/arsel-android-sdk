@@ -14,6 +14,12 @@ import sa.arsel.core.model.PushEnablementStatus
 public class ArselDiagnostics internal constructor(
     /** The `core` version, as sent in `X-Arsel-SDK`. */
     public val sdkVersion: String,
+    /**
+     * Why the SDK refused to start, or null. Set when [Arsel.initialize] was given an invalid
+     * configuration: nothing is collected and no call has any effect until it is fixed. Same
+     * field, same rules, on all three Arsel SDKs.
+     */
+    public val configError: String?,
     /** The backend's natural key for this device. Null before `initialize()`. */
     public val installationId: String?,
     /** The person-shaped identity events carry before login. Rotated by `reset()`. */
@@ -66,6 +72,7 @@ public class ArselDiagnostics internal constructor(
             appendLine("  hasPushToken          = $hasPushToken")
             appendLine("  isRegistered          = $isRegistered")
             appendLine("  subscriptionId        = ${subscriptionId ?: "<none>"}")
+            appendLine("  configError           = ${configError ?: "<none>"}")
             appendLine("  subscriptionStatus    = ${subscriptionStatus ?: "<none>"}")
             appendLine("  lastResponse          = $lastResponseCode ${lastResponsePath ?: "<none>"}")
             appendLine("  lastResponseAtMs      = $lastResponseAtMs")

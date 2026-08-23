@@ -10,7 +10,8 @@ import sa.arsel.core.log.LogLevel
  * @property clientKey Opaque per-org publishable key, `pub_…` (NOT a raw orgId). Safe to compile
  *   into an APK: it authenticates both the push API and the events API, and grants neither read
  *   access nor anything a secret API key can do.
- * @property baseUrl Arsel API base, e.g. https://api.arsel.sa (HTTPS enforced).
+ * @property baseUrl Arsel API base, e.g. https://api.arsel.sa. HTTPS enforced, except for a
+ *   loopback backend (`localhost`, `127.0.0.1`) and the emulator's host alias `10.0.2.2`.
  */
 public class ArselConfig private constructor(
     public val clientKey: String,
@@ -57,11 +58,13 @@ public class ArselConfig private constructor(
 
         public fun networkTimeoutMs(ms: Long): Builder = apply { networkTimeoutMs = ms }
 
+        /**
+         * Never throws. Invalid values are carried through and reported by
+         * [Arsel.initialize], which logs them and declines to start — a config mistake must not
+         * crash the host app from `Application.onCreate`, which is what a `require` here did.
+         * The reason is readable at any time via [Arsel.diagnostics].
+         */
         public fun build(): ArselConfig {
-            require(clientKey.isNotBlank()) { "ArselConfig: clientKey must not be blank" }
-            require(baseUrl.startsWith("https://")) {
-                "ArselConfig: baseUrl must be HTTPS (got '$baseUrl')"
-            }
             return ArselConfig(
                 clientKey = clientKey,
                 baseUrl = baseUrl,
@@ -73,5 +76,36 @@ public class ArselConfig private constructor(
                 networkTimeoutMs = networkTimeoutMs,
             )
         }
+    }
+
+    /**
+     * Nil when the configuration can work. The same four rules the web and iOS SDKs apply, in the
+     * same order, so a misconfiguration reads identically on every platform.
+     */
+    internal fun validationError(): String? {
+        if (clientKey.isBlank()) return "clientKey is required (the org's publishable pub_… key)"
+        if (!clientKey.startsWith("pub_")) {
+            return "clientKey should be the publishable pub_… key — never a secret API key"
+        }
+        if (!baseUrl.startsWith("https://") && !isLocalHttp(baseUrl)) {
+            return "baseUrl must be HTTPS (http is allowed for localhost only) (got '$baseUrl')"
+        }
+        if (runCatching { java.net.URI(baseUrl) }.isFailure) return "baseUrl is not a valid URL"
+        return null
+    }
+
+    private companion object {
+        /**
+         * Plain HTTP against a developer's own machine. `10.0.2.2` is included because it is the
+         * only address an Android emulator can reach the host on — without it "run the backend
+         * locally" is impossible on Android, which is exactly where every integration starts.
+         *
+         * The host must be followed by a port, a path or nothing, so `http://localhost.evil.com`
+         * does not slip through on a prefix match.
+         */
+        private val LOCAL_HTTP =
+            Regex("""^http://(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?(/.*)?$""")
+
+        fun isLocalHttp(url: String): Boolean = LOCAL_HTTP.matches(url)
     }
 }

@@ -77,8 +77,19 @@ internal object Notifications {
 
         val notificationId = notificationId(msg)
 
-        // A 0 small-icon resource crashes on post → fall back to the app icon.
-        val smallIcon = if (config.smallIconResId != 0) config.smallIconResId else context.applicationInfo.icon
+        // A 0 small-icon resource crashes on post → fall back to the app icon, and to a platform
+        // icon when the host declares no `android:icon` either (applicationInfo.icon is 0 then).
+        // Letting the throw through would be invisible where it matters: the device has already
+        // reported `delivered`, so the dashboard shows a push the user never saw.
+        val smallIcon =
+            config.smallIconResId.takeIf { it != 0 }
+                ?: context.applicationInfo.icon.takeIf { it != 0 }
+                ?: android.R.drawable.ic_dialog_info.also {
+                    log.e(
+                        "no small icon resolvable — set ArselConfig.Builder.smallIcon(resId) or " +
+                            "declare android:icon; falling back to a system icon",
+                    )
+                }
 
         val builder =
             NotificationCompat.Builder(context, channelId)

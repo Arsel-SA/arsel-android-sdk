@@ -71,7 +71,10 @@ internal object Registry {
         state = StateManager(store)
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         queue = RequestQueue(appContext, store)
-        controller = PushController(appContext, cfg, state, queue, scope, log)
+        controller =
+            PushController(appContext, cfg, state, queue, scope, log) {
+                Arsel.fcmBridge?.requestCurrentToken()
+            }
         inApp = InAppController(cfg.clientKey, store, queue::enqueue, scope, log)
         // The observer is passed into the constructor rather than attached later: Registry.init
         // fires the cold-start session below, BEFORE Arsel.initialize returns, so anything wired

@@ -26,6 +26,7 @@ internal object Diagnostics {
     ): ArselDiagnostics =
         ArselDiagnostics(
             sdkVersion = BuildConfig.SDK_VERSION,
+            configError = null,
             installationId = runCatching { state.installationId }.getOrNull(),
             anonymousId = runCatching { state.anonymousId }.getOrNull(),
             hasAssertedIdentity = runCatching { state.hasAssertedIdentity() }.getOrDefault(false),
@@ -49,6 +50,35 @@ internal object Diagnostics {
                 runCatching {
                     Notifications.channelImportance(context, config.defaultChannelId)
                 }.getOrNull(),
+            isFirebasePresent = isFirebasePresent(),
+        )
+
+    /**
+     * The snapshot for a config the SDK declined to start on. Nothing was initialized, so every
+     * other field is its "nothing has happened" value — the point is that [configError] is
+     * readable at all, since the usual null return means "initialize() was never called".
+     */
+    fun configRefused(error: String): ArselDiagnostics =
+        ArselDiagnostics(
+            sdkVersion = BuildConfig.SDK_VERSION,
+            configError = error,
+            installationId = null,
+            anonymousId = null,
+            hasAssertedIdentity = false,
+            hasDeviceSecret = false,
+            hasPushToken = false,
+            isRegistered = false,
+            subscriptionId = null,
+            subscriptionStatus = null,
+            lastResponseCode = 0,
+            lastResponsePath = null,
+            lastResponseAtMs = 0L,
+            queueDepth = 0,
+            eventQueueDepth = 0,
+            lastFlushAtMs = 0L,
+            enablementStatus = PushEnablementStatus.NOT_DETERMINED,
+            defaultChannelId = "",
+            channelImportance = null,
             isFirebasePresent = isFirebasePresent(),
         )
 

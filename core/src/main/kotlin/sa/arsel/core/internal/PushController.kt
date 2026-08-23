@@ -32,6 +32,8 @@ internal class PushController(
     private val queue: RequestQueue,
     private val scope: CoroutineScope,
     private val log: ArselLog,
+    /** Re-asks the push provider for a token. See [syncDeviceState]. */
+    private val requestPushToken: () -> Unit = {},
 ) {
     /** Serialises registration so two triggers cannot each burn a single-use contact token. */
     private val registrationMutex = Mutex()
@@ -46,7 +48,14 @@ internal class PushController(
      */
     fun syncDeviceState() {
         launchGuarded("device state sync") {
-            if (state.pushToken == null) return@launchGuarded
+            if (state.pushToken == null) {
+                // The fetch at initialize() is one-shot and fails on a cold start with no network.
+                // FCM only calls onNewToken when a token is *created*, so an app that already had
+                // one — the usual case when an existing Firebase app adopts this SDK — never gets a
+                // second chance and stays silently unreachable. Foreground is that second chance.
+                requestPushToken()
+                return@launchGuarded
+            }
             val device = DeviceInfo.collect(context, state.notificationPermissionRequested)
             // Anything at all before a device secret exists must go via register, since register
             // is what mints it.
