@@ -8,7 +8,7 @@ version: additive changes ship as minor releases, and anything breaking waits fo
 
 ---
 
-## [1.1.0] — 2026-08-19
+## [1.1.0] — 2026-08-23
 
 ### In-app messaging
 
@@ -45,6 +45,34 @@ no connection at all.
   cache is discarded on every successful revalidation — the opposite of what the request asks for.
 - `ForegroundWatcher` tracks the resumed Activity behind a `WeakReference`, so a message is drawn
   into the screen actually in front of the user rather than one sitting behind a dialog.
+- **`baseUrl` accepts plain http for loopback** — `localhost`, `127.0.0.1` and `10.0.2.2`, the last
+  being the only address an emulator can reach the developer's host on. Without it "run the backend
+  locally" is impossible on Android, which is exactly where every integration starts. The match is
+  anchored, so `http://localhost.evil.com` cannot slip through on a prefix.
+- **`Builder.build()` no longer throws.** It ran from `Application.onCreate`, so an invalid key took
+  the host app down at launch — contradicting this SDK's own "never crashes the host" invariant,
+  which `initialize()` could not enforce because the throw happened before it was called.
+  `initialize()` now logs, declines to start, and keeps the reason readable via
+  `diagnostics().configError`, which answers even before initialization since that is the state it
+  describes. The four rules now match the web and iOS SDKs exactly, including the `pub_` prefix
+  check that catches a secret API key compiled into an APK.
+
+### Fixed
+
+- **A notification with no resolvable icon rendered as a blank square.** `applicationInfo.icon` is
+  itself `0` when the host declares no `android:icon`, so the "use the app icon" fallback resolved
+  to resource 0. It falls back to a system icon now and logs at error level naming the two ways to
+  fix it properly — a silent blank icon is the kind of thing an integrator ships without noticing.
+- **The FCM token is re-requested when none was captured.** `requestCurrentToken()` fired exactly
+  once, from `initialize()`, with no retry and no way for the host to re-trigger it; a cold start
+  with no network answers `SERVICE_NOT_AVAILABLE`, and a handset whose GMS check-in has not landed
+  answers `AUTHENTICATION_FAILED`. `onNewToken` masks this on a fresh install because a token gets
+  created, but it fires only on creation or rotation — so an app that already uses Firebase and
+  adopts this SDK could be left unreachable by one unlucky cold start until the token happened to
+  rotate. The retry hangs off `syncDeviceState()`, which already runs on every foreground.
+- **An http loopback `baseUrl` retried forever with no event ever sent.** `ApiClient` cast the
+  connection to `HttpsURLConnection`, so a non-TLS URL threw `ClassCastException`, which the method
+  swallowed as a retryable network error.
 
 ## [1.0.0] — 2026-08-17
 
