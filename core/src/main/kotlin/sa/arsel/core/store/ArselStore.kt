@@ -86,6 +86,22 @@ internal class ArselStore(private val prefs: SharedPreferences) {
                     }
             }
 
+    /** Reads without minting, unlike [installationId] and [anonymousId] — the reason it exists. */
+    val hasDeviceIdentity: Boolean
+        get() =
+            prefs.getString(KEY_INSTALLATION_ID, null) != null ||
+                prefs.getString(KEY_ANONYMOUS_ID, null) != null
+
+    /**
+     * `commit()` because an unflushed write is a duplicate install event next launch. Deliberately
+     * absent from [clearAll]: a reset is not a reinstall, and a real one takes the whole file.
+     */
+    var installReported: Boolean
+        get() = prefs.getBoolean(KEY_INSTALL_REPORTED, false)
+        set(v) {
+            prefs.edit().putBoolean(KEY_INSTALL_REPORTED, v).commit()
+        }
+
     /** Logout. The old value is gone for good — that is the point. */
     fun rotateAnonymousId(): Unit =
         synchronized(anonymousLock) {
@@ -420,6 +436,7 @@ internal class ArselStore(private val prefs: SharedPreferences) {
         const val KEY_LAST_RESPONSE_AT = "last_response_at"
         const val KEY_REG_HASH = "reg_hash"
         const val KEY_PERMISSION_REQUESTED = "permission_requested"
+        const val KEY_INSTALL_REPORTED = "install_reported"
         const val KEY_QUEUE = "request_queue"
         const val KEY_SEEN = "seen_messages"
         const val DEFAULT_TIMEOUT_MS = 15_000L

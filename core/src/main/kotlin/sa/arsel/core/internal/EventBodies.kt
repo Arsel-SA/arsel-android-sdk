@@ -23,6 +23,7 @@ internal object EventBodies {
     const val EVENT_SESSION_START = "${RESERVED_PREFIX}session_start"
     const val EVENT_SESSION_END = "${RESERVED_PREFIX}session_end"
     const val EVENT_IDENTIFY = "${RESERVED_PREFIX}identify"
+    const val EVENT_APP_INSTALLED = "${RESERVED_PREFIX}app_installed"
 
     /** `IngestEventDto`. Length caps mirror the DTO's `@Length`, applied here so the 400 never happens. */
     const val MAX_EVENT_NAME = 80

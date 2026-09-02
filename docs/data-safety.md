@@ -66,7 +66,8 @@ Explicitly, because these are the questions that get asked:
   not what else is on the device.
 - **No fingerprinting.** The ids are random UUIDs, not derived from hardware.
 - **No screen or interaction capture.** No session replay, no automatic screen-view tracking.
-- **No automatic events** other than `arsel.session_start`, `arsel.session_end` and `arsel.identify`.
+- **No automatic events** other than `arsel.app_installed`, `arsel.session_start`, `arsel.session_end`
+  and `arsel.identify`.
 
 Whatever you put in event properties, the SDK sends. It does not inspect or redact them — see
 [the guidance on what not to put in a property](events.md#what-not-to-put-in-a-property).

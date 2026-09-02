@@ -36,7 +36,7 @@ internal object DeviceInfo {
         hasRequestedPermission: Boolean,
     ): DeviceSnapshot =
         DeviceSnapshot(
-            appVersion = appVersion(context).bounded(SHORT_TEXT_MAX),
+            appVersion = appVersion(context),
             osVersion = Build.VERSION.RELEASE.bounded(SHORT_TEXT_MAX),
             deviceModel = Build.MODEL.bounded(DEVICE_MODEL_MAX),
             deviceManufacturer = Build.MANUFACTURER.bounded(SHORT_TEXT_MAX),
@@ -50,7 +50,7 @@ internal object DeviceInfo {
                 }.getOrDefault(PushEnablementStatus.DENIED),
         )
 
-    private fun appVersion(context: Context): String? =
+    fun appVersion(context: Context): String? =
         runCatching {
             val packageManager = context.packageManager
             val info =
@@ -64,7 +64,7 @@ internal object DeviceInfo {
                     packageManager.getPackageInfo(context.packageName, 0)
                 }
             info.versionName
-        }.getOrNull()
+        }.getOrNull().bounded(SHORT_TEXT_MAX)
 
     private fun String?.bounded(max: Int): String? = this?.takeIf { it.isNotBlank() }?.take(max)
 }

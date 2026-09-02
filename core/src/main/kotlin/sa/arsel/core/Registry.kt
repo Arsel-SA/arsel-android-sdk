@@ -9,9 +9,11 @@ import sa.arsel.core.inapp.InAppController
 import sa.arsel.core.inapp.InAppPresenter
 import sa.arsel.core.internal.EventController
 import sa.arsel.core.internal.ForegroundWatcher
+import sa.arsel.core.internal.InstallTracker
 import sa.arsel.core.internal.PushController
 import sa.arsel.core.internal.SessionTracker
 import sa.arsel.core.log.ArselLog
+import sa.arsel.core.model.DeviceInfo
 import sa.arsel.core.net.RequestQueue
 import sa.arsel.core.state.StateManager
 import sa.arsel.core.store.ArselStore
@@ -44,6 +46,8 @@ internal object Registry {
         private set
     lateinit var sessions: SessionTracker
         private set
+    lateinit var installs: InstallTracker
+        private set
 
     lateinit var inApp: InAppController
         private set
@@ -63,6 +67,9 @@ internal object Registry {
         config = cfg
         log = ArselLog(cfg.logLevel)
         store = ArselStore(appContext)
+        // Before anything can mint: the first read of either identity accessor erases the
+        // difference between a first install and an SDK upgrade.
+        val alreadyInstalled = store.hasDeviceIdentity
         // Persist config so PushSyncWorker can rebuild the API client after a cold restart.
         store.baseUrl = cfg.baseUrl
         store.clientKey = cfg.clientKey
@@ -81,8 +88,13 @@ internal object Registry {
         // from outside would miss the first arsel.session_start of every cold start.
         events = EventController(state, store, queue::enqueue, log, inApp::onEvent)
         sessions = SessionTracker(store, events)
+        installs =
+            InstallTracker(store, events, { DeviceInfo.appVersion(appContext) }, BuildConfig.SDK_VERSION)
         initialized = true
         watchForeground()
+        // Ahead of the first session, so the install leads the timeline.
+        runCatching { installs.reportIfNew(alreadyInstalled) }
+            .onFailure { log.w("install report failed", it) }
         // Opens the first session for a cold start, where no activity has been through
         // onActivityStarted yet. Idempotent: the watcher's own foreground is then a no-op.
         runCatching { sessions.onForeground() }

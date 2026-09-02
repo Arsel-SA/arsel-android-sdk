@@ -116,6 +116,16 @@ change names, change them everywhere at once — a mixed estate of `Product view
 
 Reserved prefixes differ: CleverTap reserves `wzrk_`, we reserve `arsel.`.
 
+### Lifecycle events
+
+CleverTap's `App Installed` is `arsel.app_installed`, with the same once-per-install meaning. The
+one difference matters at cut-over: devices that already have your app get **no** install event when
+they update to the Arsel SDK — they are seeded silently, because emitting would have reported your
+whole installed base as installs on release day. Install-based segments therefore start empty and
+fill from cut-over forward.
+
+`App Uninstalled` and `App Version Changed` have no counterpart yet.
+
 ### Session events
 
 CleverTap emits `App Launched` and `Session Concluded`. We emit `arsel.session_start` and

@@ -83,9 +83,25 @@ The SDK emits these itself. Your `track()` cannot create or overwrite them.
 
 | Event | When | Properties |
 | --- | --- | --- |
+| `arsel.app_installed` | the first launch after this app is installed | `app_version`, `sdk_version`, `platform` |
 | `arsel.session_start` | the app comes to the foreground, cold or after 30+ minutes away | — |
 | `arsel.session_end` | discovered on the **next** foreground, backdated to when the app left | `duration_seconds` |
 | `arsel.identify` | `identify()` supplied at least one identifier | — |
+| `arsel.screen_view` | `screen()` was called | `screen_name`, plus whatever you passed |
+
+## Installs
+
+`arsel.app_installed` fires once, on the first launch after the app is installed, ahead of that
+launch's `arsel.session_start` so the install leads the timeline. The flag behind it lives in the
+SDK's `SharedPreferences`, which Android deletes with the app — so an uninstall and reinstall
+correctly counts again, while `reset()` and `optOut()` do not.
+
+One consequence worth knowing before you build a funnel on it:
+
+> **Devices already running an older SDK never get one.** They are seeded silently on their first
+> launch after the update. Emitting instead would have reported your entire installed base as
+> installs on release day — so "installed in the last 30 days" excludes anyone who installed before
+> this event existed.
 
 ## Sessions
 

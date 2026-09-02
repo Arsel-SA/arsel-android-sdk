@@ -40,9 +40,9 @@ cannot authenticate again (clear app data to mint a new installation).
 
 ## Events
 
-`POST /v1/events/send` carries custom events and the SDK's own `arsel.session_start` /
-`arsel.session_end` (the `arsel.` name prefix is reserved). Each send carries an `Idempotency-Key`
-header — the queued request's persisted id, identical across retries (24-hour server window) — so a
+`POST /v1/events/send` carries custom events and the SDK's own `arsel.app_installed` /
+`arsel.session_start` / `arsel.session_end` (the `arsel.` name prefix is reserved). Each send
+carries an `Idempotency-Key` header — the queued request's persisted id, identical across retries (24-hour server window) — so a
 retry after a lost acknowledgement cannot double-count.
 
 ## Inbound push payload
