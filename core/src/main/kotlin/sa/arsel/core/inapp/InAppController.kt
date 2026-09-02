@@ -261,6 +261,24 @@ internal class InAppController(
         enqueueBeacon(message, BEACON_CLICKED) { it.put(FIELD_BUTTON_ID, buttonId) }
     }
 
+    /**
+     * Answers are keyed by `fieldId`, never by a destination.
+     *
+     * The bundle does not carry `fieldKey` at all, so this SDK could not name where an answer
+     * lands even if it wanted to — the server resolves each id against the campaign it stored.
+     */
+    fun recordSubmit(
+        message: InAppMessage,
+        submission: Map<String, String>,
+    ) {
+        if (submission.isEmpty()) return
+        enqueueBeacon(message, BEACON_SUBMITTED) { event ->
+            val answers = JSONObject()
+            for ((fieldId, value) in submission) answers.put(fieldId, value)
+            event.put(FIELD_SUBMISSION, answers)
+        }
+    }
+
     fun recordDismiss(
         message: InAppMessage,
         visibleSeconds: Long,
@@ -427,6 +445,7 @@ internal class InAppController(
         const val FIELD_BUTTON_ID = "buttonId"
         const val FIELD_VISIBLE_SECONDS = "visibleSeconds"
         const val FIELD_TRIGGER_NAME = "triggerEventName"
+        const val FIELD_SUBMISSION = "submission"
         const val MILLIS_PER_SECOND = 1000L
         const val STATE_TTL_MS = 30L * 24 * 60 * 60 * 1000
         const val MAX_VISIBLE_SECONDS = 86_400L

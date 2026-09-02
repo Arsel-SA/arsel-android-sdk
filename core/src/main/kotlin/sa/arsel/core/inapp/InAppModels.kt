@@ -73,6 +73,7 @@ internal object InAppParser {
             // Absent means "not suppressed"; only an explicit false hides it.
             showCloseButton = content.optBoolean("showCloseButton", true),
             buttons = parseButtons(json.optJSONArray("buttons")),
+            fields = parseFields(json.optJSONArray("fields")),
         )
     }
 
@@ -94,6 +95,49 @@ internal object InAppParser {
             )
         }
         return buttons
+    }
+
+    /**
+     * An unknown field type is dropped rather than guessed at. Rendering one the SDK does not
+     * understand as a text box would collect an answer the server then refuses, which reads to
+     * the user as the form being broken.
+     */
+    private fun parseFields(array: JSONArray?): List<InAppField> {
+        if (array == null) return emptyList()
+        val fields = ArrayList<InAppField>(array.length())
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val fieldId = nullableString(item, "fieldId") ?: continue
+            val label = nullableString(item, "label") ?: continue
+            val type = nullableString(item, "type") ?: continue
+            if (type !in KNOWN_FIELD_TYPES) continue
+
+            val scale = if (item.has("scale") && !item.isNull("scale")) item.optInt("scale") else null
+            fields.add(
+                InAppField(
+                    fieldId = fieldId,
+                    type = type,
+                    label = label,
+                    required = item.optBoolean("required", false),
+                    placeholder = nullableString(item, "placeholder"),
+                    options = parseFieldOptions(item.optJSONArray("options")),
+                    scale = scale,
+                ),
+            )
+        }
+        return fields
+    }
+
+    private fun parseFieldOptions(array: JSONArray?): List<InAppFieldOption> {
+        if (array == null) return emptyList()
+        val options = ArrayList<InAppFieldOption>(array.length())
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val label = nullableString(item, "label") ?: continue
+            val value = nullableString(item, "value") ?: continue
+            options.add(InAppFieldOption(label = label, value = value))
+        }
+        return options
     }
 
     /**
@@ -149,7 +193,14 @@ internal object InAppParser {
             .apply { timeZone = TimeZone.getTimeZone("UTC") }
             .format(java.util.Date(millis))
 
-    /** Android draws all five; only web excludes FULLSCREEN. */
+    /**
+     * Layouts this build can draw.
+     *
+     * The client half of the server's `IN_APP_SUPPORTED_LAYOUTS`; the two have to be extended
+     * together. The server gates on the version this SDK reports, but a build handed a layout
+     * missing from this set drops the message silently — which is the failure this channel has
+     * no surface to detect.
+     */
     private val KNOWN_LAYOUTS =
         setOf(
             LAYOUT_MODAL,
@@ -157,6 +208,10 @@ internal object InAppParser {
             LAYOUT_BANNER_BOTTOM,
             LAYOUT_FULLSCREEN,
             LAYOUT_IMAGE_ONLY,
+            LAYOUT_HALF_INTERSTITIAL,
+            LAYOUT_ALERT,
+            LAYOUT_FORM,
+            LAYOUT_RATING,
         )
 
     /** With and without milliseconds — both are valid ISO-8601 and both appear in practice. */
@@ -197,6 +252,30 @@ internal class InAppMessage(
     val textColor: String?,
     val showCloseButton: Boolean,
     val buttons: List<InAppButton>,
+    /** Present only on FORM and RATING. Never carries a destination key. */
+    val fields: List<InAppField>,
+)
+
+/**
+ * A field as the device sees it.
+ *
+ * `fieldKey` — where the answer is stored — is deliberately absent from the wire, so this SDK
+ * cannot name a destination. Answers are reported against [fieldId] and the server resolves the
+ * rest against the campaign it holds.
+ */
+internal class InAppField(
+    val fieldId: String,
+    val type: String,
+    val label: String,
+    val required: Boolean,
+    val placeholder: String?,
+    val options: List<InAppFieldOption>,
+    val scale: Int?,
+)
+
+internal class InAppFieldOption(
+    val label: String,
+    val value: String,
 )
 
 internal class InAppButton(
@@ -236,6 +315,35 @@ internal const val LAYOUT_BANNER_TOP = "BANNER_TOP"
 internal const val LAYOUT_BANNER_BOTTOM = "BANNER_BOTTOM"
 internal const val LAYOUT_FULLSCREEN = "FULLSCREEN"
 internal const val LAYOUT_IMAGE_ONLY = "IMAGE_ONLY"
+internal const val LAYOUT_HALF_INTERSTITIAL = "HALF_INTERSTITIAL"
+internal const val LAYOUT_ALERT = "ALERT"
+internal const val LAYOUT_FORM = "FORM"
+internal const val LAYOUT_RATING = "RATING"
+
+/** Layouts that collect answers and therefore draw inputs. */
+internal val INPUT_LAYOUTS = setOf(LAYOUT_FORM, LAYOUT_RATING)
+
+internal const val FIELD_TEXT = "text"
+internal const val FIELD_EMAIL = "email"
+internal const val FIELD_TEL = "tel"
+internal const val FIELD_DROPDOWN = "dropdown"
+internal const val FIELD_RADIO = "radio"
+internal const val FIELD_CHECKBOX = "checkbox"
+internal const val FIELD_RATING = "rating"
+
+internal val KNOWN_FIELD_TYPES =
+    setOf(
+        FIELD_TEXT,
+        FIELD_EMAIL,
+        FIELD_TEL,
+        FIELD_DROPDOWN,
+        FIELD_RADIO,
+        FIELD_CHECKBOX,
+        FIELD_RATING,
+    )
+
+/** Matches DEFAULT_IN_APP_RATING_SCALE on the server. */
+internal const val DEFAULT_RATING_SCALE = 5
 
 internal const val ACTION_DEEP_LINK = "DEEP_LINK"
 internal const val ACTION_URL = "URL"
@@ -246,3 +354,4 @@ internal const val BEACON_IMPRESSION = "impression"
 internal const val BEACON_CLICKED = "clicked"
 internal const val BEACON_DISMISSED = "dismissed"
 internal const val BEACON_EXPIRED = "expired"
+internal const val BEACON_SUBMITTED = "submitted"

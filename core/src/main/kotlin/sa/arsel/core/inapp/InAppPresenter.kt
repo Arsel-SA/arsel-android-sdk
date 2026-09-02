@@ -11,10 +11,23 @@ import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.ViewGroup
+import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
+import android.widget.Spinner
 import android.widget.TextView
+import android.text.InputType
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import sa.arsel.core.notification.NotificationImage
 import sa.arsel.core.log.ArselLog
 
 /**
@@ -28,10 +41,30 @@ import sa.arsel.core.log.ArselLog
  * inherits that Activity's lifecycle — it cannot outlive the screen it was shown on, and there is
  * no window token to leak.
  */
+/** One input's identity and how to read it. Empty means unanswered, whatever the control. */
+private class FieldReader(
+    val fieldId: String,
+    val required: Boolean,
+    val read: () -> String,
+    val focus: () -> Unit,
+)
+
+/** Layouts that dim the app behind them. Banners deliberately do not. */
+private val SCRIMMED_LAYOUTS =
+    setOf(
+        LAYOUT_MODAL,
+        LAYOUT_FULLSCREEN,
+        LAYOUT_HALF_INTERSTITIAL,
+        LAYOUT_ALERT,
+        LAYOUT_FORM,
+        LAYOUT_RATING,
+    )
+
 internal class InAppPresenter(
     private val controller: InAppController,
     private val activityProvider: () -> Activity?,
     private val log: ArselLog,
+    private val scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val main = Handler(Looper.getMainLooper())
@@ -73,7 +106,7 @@ internal class InAppPresenter(
     ) {
         val shownAtMs = clock()
         val density = activity.resources.displayMetrics.density
-        val scrimmed = message.layout == LAYOUT_MODAL || message.layout == LAYOUT_FULLSCREEN
+        val scrimmed = message.layout in SCRIMMED_LAYOUTS
 
         val overlay = FrameLayout(activity)
         if (scrimmed) {
@@ -82,6 +115,7 @@ internal class InAppPresenter(
         }
 
         val panelColor = parseColor(message.backgroundColor) ?: Color.WHITE
+        val textColor = parseColor(message.textColor) ?: contrastTo(panelColor)
         val panel = buildPanel(activity, message, density, panelColor)
         overlay.addView(panel, panelLayout(message, density))
 
@@ -98,12 +132,26 @@ internal class InAppPresenter(
         }
 
         if (message.showCloseButton) {
-            panel.addView(closeButton(activity, density, parseColor(message.textColor) ?: contrastTo(panelColor)) { close(true) })
+            panel.addView(closeButton(activity, density, textColor) { close(true) })
             // Dismissable by the scrim only when the author allowed a close affordance; otherwise a
             // stray tap destroys a message they meant to be deliberate.
             if (scrimmed) overlay.setOnClickListener { close(true) }
         }
+        val readAnswers =
+            if (message.layout in INPUT_LAYOUTS && message.fields.isNotEmpty()) {
+                addFields(activity, panel, message, density, textColor)
+            } else {
+                null
+            }
+
         addButtons(activity, panel, message, density) { button ->
+            // A form's non-dismiss button submits. Answers are read BEFORE close() detaches the
+            // inputs, and a failed validation aborts the tap entirely so the message stays open
+            // with the problem visible.
+            if (readAnswers != null && button.action != ACTION_DISMISS) {
+                val answers = readAnswers() ?: return@addButtons
+                controller.recordSubmit(message, answers)
+            }
             if (button.action != ACTION_DISMISS) controller.recordClick(message, button.buttonId)
             close(button.action == ACTION_DISMISS)
             performAction(activity, button)
@@ -134,6 +182,11 @@ internal class InAppPresenter(
         // Swallows taps, so one landing on the panel never reaches the dismissing scrim behind it.
         panel.isClickable = true
 
+        // ALERT is the OS-alert shape: text and actions only, never an image.
+        if (!message.imageUrl.isNullOrEmpty() && message.layout != LAYOUT_ALERT) {
+            panel.addView(imageView(activity, message.imageUrl, density))
+        }
+
         if (message.layout != LAYOUT_IMAGE_ONLY) {
             panel.addView(label(activity, message.headline, HEADLINE_SP, textColor, bold = true))
             if (message.body.isNotEmpty()) {
@@ -143,6 +196,43 @@ internal class InAppPresenter(
             }
         }
         return panel
+    }
+
+    /**
+     * An `ImageView` that fills in once the bitmap arrives.
+     *
+     * Loaded off the main thread and applied back on it: [NotificationImage] does blocking,
+     * bounded network I/O for the FCM service thread, and calling it here would be a
+     * `NetworkOnMainThreadException`. A failed load removes the view and KEEPS the message —
+     * the headline and buttons still carry it, and a blank rectangle reads as a product bug in
+     * a way that "no image" does not.
+     */
+    private fun imageView(
+        activity: Activity,
+        url: String,
+        density: Float,
+    ): ImageView {
+        val view = ImageView(activity)
+        view.adjustViewBounds = true
+        view.scaleType = ImageView.ScaleType.FIT_CENTER
+        view.layoutParams =
+            LinearLayout.LayoutParams(MATCH, WRAP).apply {
+                bottomMargin = dp(GAP_DP, density)
+            }
+        // Hidden until it has something to draw, so a slow network never leaves a gap in the
+        // layout that the text then jumps past when it fills.
+        view.visibility = android.view.View.GONE
+
+        scope.launch {
+            val bitmap = withContext(Dispatchers.IO) { NotificationImage.load(url, log) }
+            if (bitmap == null) {
+                (view.parent as? ViewGroup)?.removeView(view)
+                return@launch
+            }
+            view.setImageBitmap(bitmap)
+            view.visibility = android.view.View.VISIBLE
+        }
+        return view
     }
 
     /** Text is always set from a value, never from markup: the content is org-authored and renders inside the customer's app. */
@@ -169,13 +259,221 @@ internal class InAppPresenter(
         val gravity =
             when (message.layout) {
                 LAYOUT_BANNER_TOP -> Gravity.TOP
-                LAYOUT_BANNER_BOTTOM -> Gravity.BOTTOM
+                // Anchored to the bottom so the app stays visible above it, which is the whole
+                // point of a half interstitial.
+                LAYOUT_BANNER_BOTTOM, LAYOUT_HALF_INTERSTITIAL -> Gravity.BOTTOM
                 else -> Gravity.CENTER
             }
         val height = if (message.layout == LAYOUT_FULLSCREEN) MATCH else WRAP
         val params = FrameLayout.LayoutParams(MATCH, height, gravity)
         params.setMargins(margin, margin, margin, margin)
         return params
+    }
+
+    /**
+     * Draws the message's inputs and returns a reader for their answers.
+     *
+     * The reader returns null when a required field is unanswered, having focused the first
+     * offender. Answers come back keyed by `fieldId`; this SDK never receives a destination, so
+     * it cannot send one.
+     */
+    private fun addFields(
+        activity: Activity,
+        panel: LinearLayout,
+        message: InAppMessage,
+        density: Float,
+        textColor: Int,
+    ): () -> Map<String, String>? {
+        val readers = ArrayList<FieldReader>(message.fields.size)
+
+        for (field in message.fields) {
+            val group = LinearLayout(activity)
+            group.orientation = LinearLayout.VERTICAL
+            group.setPadding(0, dp(GAP_DP, density), 0, 0)
+
+            if (field.type != FIELD_CHECKBOX) {
+                val caption = if (field.required) "${field.label} *" else field.label
+                group.addView(label(activity, caption, BODY_SP, textColor, bold = false))
+            }
+
+            val reader = buildField(activity, group, field, density, textColor)
+            panel.addView(group)
+            readers.add(reader)
+        }
+
+        return {
+            val answers = LinkedHashMap<String, String>(readers.size)
+            var firstInvalid: (() -> Unit)? = null
+
+            for (reader in readers) {
+                val value = reader.read()
+                if (value.isEmpty()) {
+                    if (reader.required && firstInvalid == null) firstInvalid = reader.focus
+                    continue
+                }
+                answers[reader.fieldId] = value
+            }
+
+            if (firstInvalid != null) {
+                firstInvalid.invoke()
+                null
+            } else {
+                answers
+            }
+        }
+    }
+
+    private fun buildField(
+        activity: Activity,
+        group: LinearLayout,
+        field: InAppField,
+        density: Float,
+        textColor: Int,
+    ): FieldReader =
+        when (field.type) {
+            FIELD_RATING -> buildRating(activity, group, field, density, textColor)
+            FIELD_CHECKBOX -> buildCheckbox(activity, group, field, textColor)
+            FIELD_DROPDOWN -> buildDropdown(activity, group, field)
+            FIELD_RADIO -> buildRadio(activity, group, field, textColor)
+            else -> buildTextInput(activity, group, field, textColor)
+        }
+
+    /**
+     * Radio buttons rather than tappable labels: a rating is a single-choice control, and the
+     * native widget brings the accessibility and keyboard behaviour a custom view would have to
+     * reimplement.
+     */
+    private fun buildRating(
+        activity: Activity,
+        group: LinearLayout,
+        field: InAppField,
+        density: Float,
+        textColor: Int,
+    ): FieldReader {
+        val scale = field.scale?.takeIf { it > 1 } ?: DEFAULT_RATING_SCALE
+        val row = RadioGroup(activity)
+        row.orientation = RadioGroup.HORIZONTAL
+
+        for (value in 1..scale) {
+            val option = RadioButton(activity)
+            option.id = value
+            // Stars up to five, numerals beyond: a ten-star row is unreadable at the width a
+            // message gets, and NPS is conventionally numeric anyway.
+            option.text = if (scale <= DEFAULT_RATING_SCALE) "★" else value.toString()
+            option.setTextColor(textColor)
+            option.minWidth = dp(MIN_TAP_TARGET_DP, density)
+            row.addView(option)
+        }
+        group.addView(row)
+
+        return FieldReader(
+            fieldId = field.fieldId,
+            required = field.required,
+            read = { if (row.checkedRadioButtonId > 0) row.checkedRadioButtonId.toString() else "" },
+            focus = { row.requestFocus() },
+        )
+    }
+
+    private fun buildTextInput(
+        activity: Activity,
+        group: LinearLayout,
+        field: InAppField,
+        textColor: Int,
+    ): FieldReader {
+        val input = EditText(activity)
+        input.setTextColor(textColor)
+        input.setSingleLine(true)
+        field.placeholder?.let { input.hint = it }
+        input.inputType =
+            when (field.type) {
+                FIELD_EMAIL -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+                FIELD_TEL -> InputType.TYPE_CLASS_PHONE
+                else -> InputType.TYPE_CLASS_TEXT
+            }
+        group.addView(input)
+
+        return FieldReader(
+            fieldId = field.fieldId,
+            required = field.required,
+            read = { input.text.toString().trim() },
+            focus = { input.requestFocus() },
+        )
+    }
+
+    private fun buildCheckbox(
+        activity: Activity,
+        group: LinearLayout,
+        field: InAppField,
+        textColor: Int,
+    ): FieldReader {
+        val box = CheckBox(activity)
+        box.text = if (field.required) "${field.label} *" else field.label
+        box.setTextColor(textColor)
+        group.addView(box)
+
+        return FieldReader(
+            fieldId = field.fieldId,
+            required = field.required,
+            // A required checkbox must be ticked, so an unticked one reads as empty rather than
+            // as "false" — otherwise a consent box would pass validation while recording a refusal.
+            read = { if (box.isChecked) "true" else if (field.required) "" else "false" },
+            focus = { box.requestFocus() },
+        )
+    }
+
+    private fun buildDropdown(
+        activity: Activity,
+        group: LinearLayout,
+        field: InAppField,
+    ): FieldReader {
+        val spinner = Spinner(activity)
+        val labels = ArrayList<String>(field.options.size + 1)
+        labels.add(field.placeholder ?: "Choose…")
+        field.options.forEach { labels.add(it.label) }
+
+        spinner.adapter =
+            ArrayAdapter(activity, android.R.layout.simple_spinner_dropdown_item, labels)
+        group.addView(spinner)
+
+        return FieldReader(
+            fieldId = field.fieldId,
+            required = field.required,
+            // Index 0 is the placeholder row, so it reads as unanswered.
+            read = {
+                val index = spinner.selectedItemPosition - 1
+                field.options.getOrNull(index)?.value.orEmpty()
+            },
+            focus = { spinner.requestFocus() },
+        )
+    }
+
+    private fun buildRadio(
+        activity: Activity,
+        group: LinearLayout,
+        field: InAppField,
+        textColor: Int,
+    ): FieldReader {
+        val row = RadioGroup(activity)
+        row.orientation = RadioGroup.VERTICAL
+
+        field.options.forEachIndexed { index, option ->
+            val button = RadioButton(activity)
+            button.id = index + 1
+            button.text = option.label
+            button.setTextColor(textColor)
+            row.addView(button)
+        }
+        group.addView(row)
+
+        return FieldReader(
+            fieldId = field.fieldId,
+            required = field.required,
+            read = {
+                val index = row.checkedRadioButtonId - 1
+                field.options.getOrNull(index)?.value.orEmpty()
+            },
+            focus = { row.requestFocus() },
+        )
     }
 
     private fun addButtons(
