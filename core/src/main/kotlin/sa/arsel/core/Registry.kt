@@ -131,7 +131,15 @@ internal object Registry {
         // to know the top Activity, and drawing into a stale one is worse than not drawing. In-app
         // then stays inert rather than crashing.
         val presenter =
-            InAppPresenter(inApp, { watcher.currentActivity }, log, scope, { events.track(it) })
+            InAppPresenter(
+                inApp,
+                { watcher.currentActivity },
+                log,
+                scope,
+                // Named: the last parameter is `clock`, so a trailing lambda here
+                // would silently be offered as the clock instead.
+                track = { name, properties -> events.track(name, properties) },
+            )
         inApp.presenter = presenter::present
     }
 }

@@ -75,7 +75,7 @@ internal class InAppPresenter(
      * otherwise "spun the wheel" fires the next in-app message but never appears in analytics or
      * in an automation. Inert in a host with no event controller.
      */
-    private val track: (String) -> Unit = {},
+    private val track: (String, Map<String, Any?>) -> Unit = { _, _ -> },
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val main = Handler(Looper.getMainLooper())
@@ -575,7 +575,9 @@ internal class InAppPresenter(
             BRIDGE_DISMISS -> close(true)
             BRIDGE_TRACK -> {
                 val name = payload.optString("event").trim().take(MAX_BRIDGE_NAME_CHARS)
-                if (name.isNotEmpty()) track(name)
+                if (name.isNotEmpty()) {
+                    track(name, readBridgeProperties(payload.optJSONObject("properties")))
+                }
             }
             BRIDGE_BUTTON -> {
                 val id = payload.optString("buttonId")
@@ -592,6 +594,34 @@ internal class InAppPresenter(
             BRIDGE_RESIZE -> resizeSandbox(activity, sandbox, payload.opt("height"))
             else -> Unit
         }
+    }
+
+    /**
+     * Properties on a page-authored event, bounded and flattened.
+     *
+     * Unlike a submission — refused outright when malformed, because a half-read set of answers is
+     * worse than none — a bad property is dropped and the event still records. The event is the
+     * thing being reported, and losing it because one value was an object would hide the
+     * interaction entirely.
+     *
+     * Nested values are not serialised: the queue posts these to an API that types properties as
+     * primitives, and quietly JSON-encoding an object would put a string where every segment
+     * reading it expects a number.
+     */
+    private fun readBridgeProperties(json: JSONObject?): Map<String, Any?> {
+        if (json == null) return emptyMap()
+        val properties = LinkedHashMap<String, Any?>()
+        for (key in json.keys()) {
+            if (properties.size >= MAX_BRIDGE_FIELDS) break
+            if (key.isEmpty() || key.length > MAX_BRIDGE_NAME_CHARS) continue
+            when (val value = json.opt(key)) {
+                is String -> properties[key] = value.take(MAX_BRIDGE_VALUE_CHARS)
+                is Boolean -> properties[key] = value
+                is Number -> properties[key] = value
+                else -> Unit
+            }
+        }
+        return properties
     }
 
     /**
@@ -650,7 +680,7 @@ internal class InAppPresenter(
             // A real event, not just a local trigger match: the web SDK calls `track()` here, and
             // an Android-only signal that never leaves the device silently breaks any automation or
             // report keyed on it.
-            ACTION_CUSTOM_EVENT -> if (!value.isNullOrEmpty()) track(value)
+            ACTION_CUSTOM_EVENT -> if (!value.isNullOrEmpty()) track(value, emptyMap())
             else -> Unit
         }
     }
