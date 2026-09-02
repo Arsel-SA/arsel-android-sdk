@@ -49,6 +49,11 @@ internal object InAppParser {
         val content = json.optJSONObject("content") ?: return null
         val headline = nullableString(content, "headline") ?: return null
 
+        val customHtml = parseCustomHtml(json.optJSONObject("customHtml"))
+        // Dropped whole, not degraded to a bare headline panel: the author designed markup, and a
+        // stray text modal in its place is a worse outcome than the message not appearing.
+        if (layout == LAYOUT_CUSTOM_HTML && customHtml == null) return null
+
         val trigger = json.optJSONObject("trigger") ?: JSONObject()
         val rules = json.optJSONObject("displayRules") ?: JSONObject()
 
@@ -74,6 +79,36 @@ internal object InAppParser {
             showCloseButton = content.optBoolean("showCloseButton", true),
             buttons = parseButtons(json.optJSONArray("buttons")),
             fields = parseFields(json.optJSONArray("fields")),
+            customHtml = customHtml,
+        )
+    }
+
+    /**
+     * Null when the declared source carries no payload, which drops the whole message: an empty
+     * sandbox still reports a healthy impression, and that is indistinguishable from delivery.
+     */
+    private fun parseCustomHtml(json: JSONObject?): InAppCustomHtml? {
+        if (json == null) return null
+        val source = nullableString(json, "source") ?: return null
+        if (source != HTML_SOURCE_INLINE && source != HTML_SOURCE_URL) return null
+
+        val html = nullableString(json, "html")
+        val url = nullableString(json, "url")
+        if (source == HTML_SOURCE_INLINE && html == null) return null
+        if (source == HTML_SOURCE_URL && url == null) return null
+
+        return InAppCustomHtml(
+            source = source,
+            html = html,
+            url = url,
+            // Absent means OFF. Anything but an explicit true leaves the WebView scriptless.
+            allowJavaScript = json.optBoolean("allowJavaScript", false),
+            overlayStyle =
+                if (nullableString(json, "overlayStyle") == OVERLAY_TRANSPARENT) {
+                    OVERLAY_TRANSPARENT
+                } else {
+                    OVERLAY_DARK
+                },
         )
     }
 
@@ -212,6 +247,7 @@ internal object InAppParser {
             LAYOUT_ALERT,
             LAYOUT_FORM,
             LAYOUT_RATING,
+            LAYOUT_CUSTOM_HTML,
         )
 
     /** With and without milliseconds — both are valid ISO-8601 and both appear in practice. */
@@ -254,6 +290,23 @@ internal class InAppMessage(
     val buttons: List<InAppButton>,
     /** Present only on FORM and RATING. Never carries a destination key. */
     val fields: List<InAppField>,
+    /** Present only on CUSTOM_HTML. */
+    val customHtml: InAppCustomHtml?,
+)
+
+/**
+ * Author-supplied markup and the terms it is drawn under.
+ *
+ * [allowJavaScript] is a capability the renderer withholds, not a request the markup can make: it
+ * decides whether the WebView is given script at all, so a creative authored without script cannot
+ * turn script on for itself.
+ */
+internal class InAppCustomHtml(
+    val source: String,
+    val html: String?,
+    val url: String?,
+    val allowJavaScript: Boolean,
+    val overlayStyle: String,
 )
 
 /**
@@ -319,6 +372,12 @@ internal const val LAYOUT_HALF_INTERSTITIAL = "HALF_INTERSTITIAL"
 internal const val LAYOUT_ALERT = "ALERT"
 internal const val LAYOUT_FORM = "FORM"
 internal const val LAYOUT_RATING = "RATING"
+internal const val LAYOUT_CUSTOM_HTML = "CUSTOM_HTML"
+
+internal const val HTML_SOURCE_INLINE = "INLINE"
+internal const val HTML_SOURCE_URL = "URL"
+internal const val OVERLAY_TRANSPARENT = "TRANSPARENT"
+internal const val OVERLAY_DARK = "DARK"
 
 /** Layouts that collect answers and therefore draw inputs. */
 internal val INPUT_LAYOUTS = setOf(LAYOUT_FORM, LAYOUT_RATING)

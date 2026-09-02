@@ -144,6 +144,63 @@ class InAppParserTest {
         assertEquals(ISO_LENGTH, stamped.length)
     }
 
+    @Test
+    fun `reads a custom-html message`() {
+        val json =
+            customHtml(
+                "\"source\":\"INLINE\",\"html\":\"<p>hi</p>\"," +
+                    "\"allowJavaScript\":true,\"overlayStyle\":\"TRANSPARENT\"",
+            )
+
+        val custom = requireNotNull(parseCustom(json))
+
+        assertEquals(HTML_SOURCE_INLINE, custom.source)
+        assertEquals("<p>hi</p>", custom.html)
+        assertTrue(custom.allowJavaScript)
+        assertEquals(OVERLAY_TRANSPARENT, custom.overlayStyle)
+    }
+
+    @Test
+    fun `leaves script off unless it is explicitly on`() {
+        // The capability is withheld by default: a creative authored without script must never
+        // acquire it from a missing key, a null, or a non-boolean.
+        val absent = requireNotNull(parseCustom(customHtml("\"source\":\"INLINE\",\"html\":\"<p>hi</p>\"")))
+        val explicitNull =
+            requireNotNull(
+                parseCustom(
+                    customHtml("\"source\":\"INLINE\",\"html\":\"<p>hi</p>\",\"allowJavaScript\":null"),
+                ),
+            )
+
+        assertTrue(!absent.allowJavaScript)
+        assertTrue(!explicitNull.allowJavaScript)
+    }
+
+    @Test
+    fun `drops a custom-html message whose source has no payload`() {
+        // The whole message goes, not just the payload: the author designed markup, and a stray
+        // text modal in its place is a worse outcome than the message not appearing.
+        assertNull(parseMessage(customHtml("\"source\":\"INLINE\",\"url\":\"https://a.test/x\"")))
+        assertNull(parseMessage(customHtml("\"source\":\"URL\",\"html\":\"<p>hi</p>\"")))
+        assertNull(parseMessage(customHtml("\"source\":\"MAGIC\",\"html\":\"<p>hi</p>\"")))
+    }
+
+    @Test
+    fun `carries no custom html on any other layout`() {
+        val parsed = requireNotNull(InAppParser.parseMessage(JSONObject(message())))
+
+        assertNull(parsed.customHtml)
+    }
+
+    private fun customHtml(fields: String): String =
+        "{\"campaignId\":\"c1\",\"messageId\":\"m1\",\"layout\":\"CUSTOM_HTML\"," +
+            "\"content\":{\"headline\":\"Hi\",\"showCloseButton\":true}," +
+            "\"customHtml\":{" + fields + "}}"
+
+    private fun parseCustom(json: String): InAppCustomHtml? = parseMessage(json)?.customHtml
+
+    private fun parseMessage(json: String): InAppMessage? = InAppParser.parseMessage(JSONObject(json))
+
     private fun message(extra: String = ""): String {
         val base =
             "\"campaignId\":\"c1\",\"messageId\":\"m1\",\"layout\":\"MODAL\"," +

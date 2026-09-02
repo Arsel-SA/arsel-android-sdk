@@ -8,9 +8,11 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.ViewGroup
+import android.webkit.WebView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
@@ -22,25 +24,14 @@ import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.Spinner
 import android.widget.TextView
-import android.text.InputType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import sa.arsel.core.notification.NotificationImage
+import org.json.JSONObject
 import sa.arsel.core.log.ArselLog
+import sa.arsel.core.notification.NotificationImage
 
-/**
- * Draws an in-app message into the Activity currently on screen.
- *
- * Views are built in code rather than inflated from XML on purpose: a library that ships layout
- * resources collides with the host app's resource names and forces every integrator to carry them.
- * A handful of `View` constructions costs less than that.
- *
- * The message is attached to the Activity's own `android.R.id.content`, not a new Window, so it
- * inherits that Activity's lifecycle — it cannot outlive the screen it was shown on, and there is
- * no window token to leak.
- */
 /** One input's identity and how to read it. Empty means unanswered, whatever the control. */
 private class FieldReader(
     val fieldId: String,
@@ -58,13 +49,33 @@ private val SCRIMMED_LAYOUTS =
         LAYOUT_ALERT,
         LAYOUT_FORM,
         LAYOUT_RATING,
+        LAYOUT_CUSTOM_HTML,
     )
 
+/**
+ * Draws an in-app message into the Activity currently on screen.
+ *
+ * Views are built in code rather than inflated from XML on purpose: a library that ships layout
+ * resources collides with the host app's resource names and forces every integrator to carry them.
+ * A handful of `View` constructions costs less than that.
+ *
+ * The message is attached to the Activity's own `android.R.id.content`, not a new Window, so it
+ * inherits that Activity's lifecycle — it cannot outlive the screen it was shown on, and there is
+ * no window token to leak.
+ */
 internal class InAppPresenter(
     private val controller: InAppController,
     private val activityProvider: () -> Activity?,
     private val log: ArselLog,
     private val scope: CoroutineScope,
+    /**
+     * Records a real event — the same one `Arsel.track` records.
+     *
+     * A message-authored event has to reach the server, not only the local trigger matcher:
+     * otherwise "spun the wheel" fires the next in-app message but never appears in analytics or
+     * in an automation. Inert in a host with no event controller.
+     */
+    private val track: (String) -> Unit = {},
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val main = Handler(Looper.getMainLooper())
@@ -114,7 +125,15 @@ internal class InAppPresenter(
             overlay.isClickable = true
         }
 
-        val panelColor = parseColor(message.backgroundColor) ?: Color.WHITE
+        val custom = if (message.layout == LAYOUT_CUSTOM_HTML) message.customHtml else null
+        // TRANSPARENT means the app behind stays fully visible, because the author is drawing
+        // their own backdrop inside the markup.
+        if (custom?.overlayStyle == OVERLAY_TRANSPARENT) {
+            overlay.setBackgroundColor(Color.TRANSPARENT)
+        }
+
+        val panelColor =
+            if (custom != null) Color.TRANSPARENT else parseColor(message.backgroundColor) ?: Color.WHITE
         val textColor = parseColor(message.textColor) ?: contrastTo(panelColor)
         val panel = buildPanel(activity, message, density, panelColor)
         overlay.addView(panel, panelLayout(message, density))
@@ -129,6 +148,15 @@ internal class InAppPresenter(
                     controller.recordDismiss(message, (clock() - shownAtMs) / MILLIS_PER_SECOND)
                 }
             }
+        }
+
+        var sandbox: WebView? = null
+        if (custom != null) {
+            sandbox =
+                InAppWebSandbox.create(activity, custom, log) { payload ->
+                    onBridgeMessage(activity, message, payload, close, sandbox)
+                }
+            panel.addView(sandbox, LinearLayout.LayoutParams(MATCH, dp(DEFAULT_SANDBOX_HEIGHT_DP, density)))
         }
 
         if (message.showCloseButton) {
@@ -181,6 +209,13 @@ internal class InAppPresenter(
             }
         // Swallows taps, so one landing on the panel never reaches the dismissing scrim behind it.
         panel.isClickable = true
+
+        // The markup owns everything visible, so none of the ordinary content is drawn — and no
+        // padding is added around it either.
+        if (message.layout == LAYOUT_CUSTOM_HTML) {
+            panel.setPadding(0, 0, 0, 0)
+            return panel
+        }
 
         // ALERT is the OS-alert shape: text and actions only, never an image.
         if (!message.imageUrl.isNullOrEmpty() && message.layout != LAYOUT_ALERT) {
@@ -416,7 +451,13 @@ internal class InAppPresenter(
             required = field.required,
             // A required checkbox must be ticked, so an unticked one reads as empty rather than
             // as "false" — otherwise a consent box would pass validation while recording a refusal.
-            read = { if (box.isChecked) "true" else if (field.required) "" else "false" },
+            read = {
+                when {
+                    box.isChecked -> "true"
+                    field.required -> ""
+                    else -> "false"
+                }
+            },
             focus = { box.requestFocus() },
         )
     }
@@ -516,6 +557,82 @@ internal class InAppPresenter(
     }
 
     /**
+     * Runs what a custom-HTML message asked for, on the UI thread.
+     *
+     * Nothing here trusts the payload with more than its own intent. A button is named by id and
+     * resolved against the CAMPAIGN's own buttons, so the markup can ask for an action the author
+     * defined but can never invent a destination — the same rule that keeps `fieldKey` off the wire
+     * for forms.
+     */
+    private fun onBridgeMessage(
+        activity: Activity,
+        message: InAppMessage,
+        payload: JSONObject,
+        close: (Boolean) -> Unit,
+        sandbox: WebView?,
+    ) {
+        when (payload.optString("type")) {
+            BRIDGE_DISMISS -> close(true)
+            BRIDGE_TRACK -> {
+                val name = payload.optString("event").trim().take(MAX_BRIDGE_NAME_CHARS)
+                if (name.isNotEmpty()) track(name)
+            }
+            BRIDGE_BUTTON -> {
+                val id = payload.optString("buttonId")
+                val button = message.buttons.firstOrNull { it.buttonId == id } ?: return
+                // Queued before any navigation, which may take the app to the background.
+                if (button.action != ACTION_DISMISS) controller.recordClick(message, button.buttonId)
+                close(button.action == ACTION_DISMISS)
+                performAction(activity, button)
+            }
+            BRIDGE_SUBMIT -> {
+                val answers = readBridgeSubmission(payload.optJSONObject("submission")) ?: return
+                controller.recordSubmit(message, answers)
+            }
+            BRIDGE_RESIZE -> resizeSandbox(activity, sandbox, payload.opt("height"))
+            else -> Unit
+        }
+    }
+
+    /**
+     * Bounded before it reaches the queue. The page is untrusted, so a submission of arbitrary size
+     * or shape is refused here rather than enqueued and rejected a round trip later.
+     */
+    private fun readBridgeSubmission(json: JSONObject?): Map<String, String>? {
+        if (json == null || json.length() == 0 || json.length() > MAX_BRIDGE_FIELDS) return null
+        val answers = LinkedHashMap<String, String>(json.length())
+        for (key in json.keys()) {
+            val value = json.opt(key)
+            if (value !is String) return null
+            if (key.isEmpty() || key.length > MAX_BRIDGE_NAME_CHARS) return null
+            answers[key] = value.take(MAX_BRIDGE_VALUE_CHARS)
+        }
+        return answers
+    }
+
+    /**
+     * Honours a height the markup asks for, clamped.
+     *
+     * Without it a custom message is stuck at whatever the layout guessed, because the page's own
+     * content height is not readable from here. The clamp is what makes obeying it safe: an
+     * unbounded height is a full-screen overlay the user cannot get past.
+     */
+    private fun resizeSandbox(
+        activity: Activity,
+        sandbox: WebView?,
+        requested: Any?,
+    ) {
+        val view = sandbox ?: return
+        val requestedDp = (requested as? Number)?.toInt() ?: return
+        val metrics = activity.resources.displayMetrics
+        val ceiling = (metrics.heightPixels * MAX_SANDBOX_SCREEN_SHARE).toInt()
+        val floor = dp(MIN_SANDBOX_HEIGHT_DP, metrics.density)
+        val params = view.layoutParams ?: return
+        params.height = dp(requestedDp, metrics.density).coerceIn(floor, maxOf(floor, ceiling))
+        view.layoutParams = params
+    }
+
+    /**
      * A deep link or URL leaves the app, so the click beacon is already queued by the caller before
      * this runs — the queue is persisted and survives the process going away.
      */
@@ -530,10 +647,10 @@ internal class InAppPresenter(
                 runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(value))) }
                     .onFailure { log.w("in-app: nothing on this device handles $value", it) }
             }
-            ACTION_CUSTOM_EVENT ->
-                if (!value.isNullOrEmpty()) {
-                    controller.observe(TRIGGER_CUSTOM_EVENT, value, emptyMap())
-                }
+            // A real event, not just a local trigger match: the web SDK calls `track()` here, and
+            // an Android-only signal that never leaves the device silently breaks any automation or
+            // report keyed on it.
+            ACTION_CUSTOM_EVENT -> if (!value.isNullOrEmpty()) track(value)
             else -> Unit
         }
     }
@@ -585,5 +702,21 @@ internal class InAppPresenter(
         const val BLUE_WEIGHT = 0.0722
         const val MAX_CHANNEL = 255.0
         const val LIGHT_THRESHOLD = 0.6
+
+        const val BRIDGE_DISMISS = "arsel:dismiss"
+        const val BRIDGE_TRACK = "arsel:track"
+        const val BRIDGE_BUTTON = "arsel:button"
+        const val BRIDGE_SUBMIT = "arsel:submit"
+        const val BRIDGE_RESIZE = "arsel:resize"
+
+        /** Bounds on anything crossing the bridge from untrusted markup. */
+        const val MAX_BRIDGE_FIELDS = 20
+        const val MAX_BRIDGE_NAME_CHARS = 64
+        const val MAX_BRIDGE_VALUE_CHARS = 500
+        const val DEFAULT_SANDBOX_HEIGHT_DP = 320
+        const val MIN_SANDBOX_HEIGHT_DP = 80
+
+        /** A message may not grow past this share of the screen, whatever it asks for. */
+        const val MAX_SANDBOX_SCREEN_SHARE = 0.9
     }
 }

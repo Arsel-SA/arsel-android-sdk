@@ -130,7 +130,8 @@ internal object Registry {
         // Wired only where a real Application exists: without lifecycle callbacks there is no way
         // to know the top Activity, and drawing into a stale one is worse than not drawing. In-app
         // then stays inert rather than crashing.
-        val presenter = InAppPresenter(inApp, { watcher.currentActivity }, log, scope)
+        val presenter =
+            InAppPresenter(inApp, { watcher.currentActivity }, log, scope, { events.track(it) })
         inApp.presenter = presenter::present
     }
 }
