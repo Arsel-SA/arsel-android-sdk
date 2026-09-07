@@ -1,7 +1,7 @@
 # Arsel — Sample / Test App
 
 A standalone Android app (its **own repo**) that consumes the
-**[Arsel Android SDK](https://github.com/BasicsEngage/arsel-android-sdk)** exactly the way a
+**[Arsel Android SDK](https://github.com/Arsel-SA/arsel-android-sdk)** exactly the way a
 real integrator would. This is the test sandbox — no production app required.
 
 > Contains no SDK source. It is its own Gradle build and depends on the published artifact from
