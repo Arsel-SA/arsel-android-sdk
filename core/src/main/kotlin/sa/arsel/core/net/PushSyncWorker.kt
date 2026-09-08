@@ -13,8 +13,12 @@ import sa.arsel.core.store.ArselStore
 /**
  * Drains the persisted request queue. Instantiated by WorkManager (so it runs even after the app
  * process was killed) and is independent of Registry for its own work — it rebuilds the [ApiClient]
- * from the config persisted in [ArselStore]. WorkManager's backoff handles retry timing; we only
- * signal retry/success.
+ * from the config persisted in [ArselStore].
+ *
+ * Retry timing is [RetryPolicy]'s, persisted in the store — NOT WorkManager's. WorkManager's
+ * backoff is reset by every `APPEND_OR_REPLACE` enqueue (see [RequestQueue]), so an app that kept
+ * calling `track()` while rate-limited retried every ~10s forever. WorkManager still supplies the
+ * wakeups; the persisted gate decides whether one does any network.
  */
 internal class PushSyncWorker(
     appContext: Context,
@@ -25,23 +29,28 @@ internal class PushSyncWorker(
         val baseUrl = store.baseUrl ?: return Result.success() // SDK not configured yet
         val log = ArselLog(store.logLevel)
 
-        if (DrainPolicy.hasExhaustedAttempts(runAttemptCount)) {
-            log.w("drain abandoned after $runAttemptCount attempts; queue kept for the next enqueue")
-            return Result.failure()
+        // Costs no network, and deliberately does not count as an attempt — abandonment is decided
+        // on the failure path below, from drains that actually reached the server. Returning
+        // retry() rather than success() keeps WorkManager waking us, so the queue still drains once
+        // the gate expires even if nothing new is enqueued.
+        val startedAt = System.currentTimeMillis()
+        if (DrainPolicy.isGated(store.retryNotBeforeMs, startedAt)) {
+            log.d("drain gated for ${store.retryNotBeforeMs - startedAt}ms more")
+            return Result.retry()
         }
 
         val http = ApiClient(baseUrl, store.networkTimeoutMs, log)
         val requests = store.getRequests()
         if (requests.isEmpty()) return Result.success()
 
-        val now = System.currentTimeMillis()
         // Ids to delete, never "what remains": anything enqueued while we were on the network must
         // survive the drain (see ArselStore.removeRequests).
         val settled = mutableSetOf<String>()
         var retry = false
+        var retryAfterMs: Long? = null
 
         for (req in requests) {
-            if (DrainPolicy.isExpired(req.createdAtMs, now)) {
+            if (DrainPolicy.isExpired(req.createdAtMs, startedAt)) {
                 log.w("dropping request older than ${DrainPolicy.MAX_AGE_MS}ms: ${req.path}")
                 settled.add(req.id)
                 continue
@@ -102,6 +111,9 @@ internal class PushSyncWorker(
                 }
                 ApiClient.Result.RETRYABLE -> {
                     retry = true
+                    // Parsed all along; until now nothing read it, so a 429's Retry-After was
+                    // discarded and WorkManager's fixed curve was all that happened.
+                    retryAfterMs = response.retryAfterMs
                     // Stop the drain outright: WorkManager's backoff carries the wait, and
                     // continuing would let a later request overtake this one — the queue's
                     // oldest-first ordering guarantee, shared with the web SDK.
@@ -111,7 +123,30 @@ internal class PushSyncWorker(
         }
 
         store.removeRequests(settled)
-        return if (retry) Result.retry() else Result.success()
+
+        if (!retry) {
+            store.consecutiveDrainFailures = 0
+            store.retryNotBeforeMs = 0
+            return Result.success()
+        }
+
+        val attempt = store.consecutiveDrainFailures + 1
+        val waitMs = RetryPolicy.backoffMs(attempt, retryAfterMs)
+        store.retryNotBeforeMs = System.currentTimeMillis() + waitMs
+
+        if (DrainPolicy.hasExhaustedAttempts(attempt)) {
+            // Abandon the wakeup chain, not the queue and not the wait: the gate above outlives
+            // this worker, so the drain a later enqueue schedules still sits out `waitMs` before
+            // touching the network. The counter resets because a chain that starts already
+            // exhausted could never drain at all.
+            store.consecutiveDrainFailures = 0
+            log.w("drain abandoned after $attempt failures; queue kept for the next enqueue")
+            return Result.failure()
+        }
+
+        store.consecutiveDrainFailures = attempt
+        log.d("drain failed (attempt $attempt); next attempt in ${waitMs}ms")
+        return Result.retry()
     }
 
     /**

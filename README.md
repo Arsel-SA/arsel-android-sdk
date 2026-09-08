@@ -59,7 +59,7 @@ would.
 
 ```kotlin
 dependencies {
-    implementation("sa.arsel:push-fcm:1.0.0")               // pulls core transitively
+    implementation("sa.arsel:push-fcm:1.3.0")               // pulls core transitively
     implementation(platform("com.google.firebase:firebase-bom:<ver>"))
     implementation("com.google.firebase:firebase-messaging")    // host owns the Firebase version
 }

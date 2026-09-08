@@ -60,7 +60,7 @@ Delivery is failing and events are being kept, which is intended. Read `lastResp
 | `401` | Bad or wrong-class key | Use the `pub_…` client key |
 | `403` | Origin rejected | Native apps send no `Origin`; a `403` here means a proxy is adding one |
 | `404` | The org's push channel isn't enabled yet | Retried automatically — nothing to do |
-| `429` | Rate limited | Kept and retried on WorkManager's backoff, though enqueuing another event restarts that backoff. Sustained `429`s mean the organization is over its event budget, so send fewer events rather than waiting it out |
+| `429` | Rate limited | Kept and retried on a jittered backoff (5s, doubling, capped at 5 min), never before the `Retry-After` the server sent. Sustained `429`s mean the organization is over its event budget, so send fewer events rather than waiting it out |
 | `-1` | No response at all | Offline, DNS, TLS, or a corporate proxy |
 | `0` | Nothing has been sent yet | `initialize()` may not have run |
 

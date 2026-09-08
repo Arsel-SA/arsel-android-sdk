@@ -41,8 +41,20 @@ class DrainPolicyTest {
     }
 
     @Test
-    fun `a fresh worker run is never treated as exhausted`() {
+    fun `a queue with no failures behind it is never treated as exhausted`() {
         assertFalse(DrainPolicy.hasExhaustedAttempts(0))
+    }
+
+    @Test
+    fun `an unset gate never holds the drain back`() {
+        assertFalse(DrainPolicy.isGated(0L, NOW_MS))
+    }
+
+    @Test
+    fun `the gate holds until its instant passes, and not one wakeup longer`() {
+        assertTrue(DrainPolicy.isGated(NOW_MS + 1, NOW_MS))
+        assertFalse(DrainPolicy.isGated(NOW_MS, NOW_MS))
+        assertFalse(DrainPolicy.isGated(NOW_MS - 1, NOW_MS))
     }
 
     private companion object {

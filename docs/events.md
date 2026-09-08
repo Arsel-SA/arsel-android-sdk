@@ -147,7 +147,11 @@ them.
 | `401` / `403` on an authed route | re-auth — the device secret is no longer accepted |
 | any other `4xx` | permanent — dropped |
 
-WorkManager owns the schedule and applies its own backoff. Drains are also triggered by
+WorkManager owns the *schedule* — when the process is woken — but not the retry timing. After a
+retryable failure the wait is 5s, doubling, capped at 5 minutes, plus up to 50% jitter, and is
+persisted: WorkManager's own backoff is reset by every enqueue, so without this an active app
+retried every ~10s no matter how hard the server pushed back. A `Retry-After` raises the wait but
+never lowers it. A wakeup that arrives during the wait does no network. Drains are also triggered by
 `initialize()`, by app foreground, and by `flushNow()`.
 
 ```kotlin

@@ -31,7 +31,12 @@ internal class RequestQueue(
      * running — the common case, since a push both renders and engagements — is silently dropped on the
      * floor: the running drain read the queue before that request existed, and the new schedule
      * request is discarded because work with the same name already exists. `APPEND_OR_REPLACE`
-     * guarantees a drain runs *after* this enqueue, and the backoff attempt count resets with it.
+     * guarantees a drain runs *after* this enqueue.
+     *
+     * It also resets WorkManager's backoff attempt count, which used to mean an active app retried
+     * every [BACKOFF_SECONDS] forever no matter how hard the server pushed back. That is why the
+     * real wait lives in [RetryPolicy] and is persisted by [PushSyncWorker]: this schedule only
+     * decides *when we wake up*, never whether we are allowed to send.
      */
     fun scheduleDrain() {
         val work =

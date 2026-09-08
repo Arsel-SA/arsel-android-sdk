@@ -122,6 +122,24 @@ internal class ArselStore(private val prefs: SharedPreferences) {
         get() = prefs.getString(KEY_IDENTIFIED_PHONE, null)
         set(v) = prefs.edit().putString(KEY_IDENTIFIED_PHONE, v).apply()
 
+    // --- drain pacing (see RetryPolicy, PushSyncWorker) ---
+
+    /**
+     * Wall-clock instant before which the drain must not touch the network, or `0`.
+     *
+     * Persisted rather than held in the worker, because WorkManager's own backoff is reset by every
+     * `APPEND_OR_REPLACE` enqueue — so an app that kept calling `track()` while rate-limited retried
+     * every ~10s indefinitely. This gate survives that reset.
+     */
+    var retryNotBeforeMs: Long
+        get() = prefs.getLong(KEY_RETRY_NOT_BEFORE, 0L)
+        set(v) = prefs.edit().putLong(KEY_RETRY_NOT_BEFORE, v).apply()
+
+    /** Consecutive failed drains, which is the exponent in [RetryPolicy.backoffMs]. */
+    var consecutiveDrainFailures: Int
+        get() = prefs.getInt(KEY_DRAIN_FAILURES, 0)
+        set(v) = prefs.edit().putInt(KEY_DRAIN_FAILURES, v).apply()
+
     // --- session bookkeeping (see SessionTracker) ---
 
     /**
@@ -385,6 +403,8 @@ internal class ArselStore(private val prefs: SharedPreferences) {
                     .remove(KEY_IDENTIFIED_PHONE)
                     .remove(KEY_BACKGROUNDED_AT)
                     .remove(KEY_SESSION_STARTED_AT)
+                    .remove(KEY_RETRY_NOT_BEFORE)
+                    .remove(KEY_DRAIN_FAILURES)
                     .remove(KEY_IAM_CATALOGUE)
                     .remove(KEY_IAM_STATE)
                     .remove(KEY_IAM_SESSION)
@@ -424,6 +444,8 @@ internal class ArselStore(private val prefs: SharedPreferences) {
         const val KEY_IDENTIFIED_PHONE = "identified_phone"
         const val KEY_BACKGROUNDED_AT = "backgrounded_at"
         const val KEY_SESSION_STARTED_AT = "session_started_at"
+        const val KEY_RETRY_NOT_BEFORE = "retry_not_before"
+        const val KEY_DRAIN_FAILURES = "drain_failures"
         const val KEY_IAM_CATALOGUE = "iam_catalogue"
         const val KEY_IAM_STATE = "iam_state"
         const val KEY_IAM_SESSION = "iam_session"

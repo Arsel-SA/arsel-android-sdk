@@ -16,9 +16,15 @@ internal object DrainPolicy {
     const val MAX_AGE_MS: Long = 7L * 24 * 60 * 60 * 1000
 
     /**
-     * WorkManager's exponential backoff reaches multi-hour waits long before this, so a chain this
-     * deep is a queue nothing can deliver. The requests stay on disk — only the retry chain is
-     * abandoned, and the next enqueue schedules a fresh drain.
+     * Consecutive *failed drains* — not WorkManager wakeups — after which the retry chain is
+     * abandoned. [RetryPolicy]'s curve is already at its 5-minute ceiling by the fifth, so a chain
+     * this deep is a queue nothing can deliver. The requests stay on disk, and so does the pacing
+     * gate: only the wakeup chain is abandoned, and the next enqueue schedules a fresh drain that
+     * still waits the gate out.
+     *
+     * Counting failures rather than `runAttemptCount` is deliberate. A wakeup that arrives while
+     * the gate is closed does no network, and must not spend the budget for something it never
+     * tried.
      */
     const val MAX_RUN_ATTEMPTS: Int = 8
 
@@ -27,5 +33,15 @@ internal object DrainPolicy {
         nowMs: Long,
     ): Boolean = nowMs - createdAtMs > MAX_AGE_MS
 
-    fun hasExhaustedAttempts(runAttemptCount: Int): Boolean = runAttemptCount >= MAX_RUN_ATTEMPTS
+    /**
+     * Whether [RetryPolicy]'s persisted wait still has time left on it. A wakeup that lands inside
+     * the wait must do no network — it is the whole reason the wait is persisted rather than left
+     * to WorkManager, whose own backoff every enqueue resets.
+     */
+    fun isGated(
+        retryNotBeforeMs: Long,
+        nowMs: Long,
+    ): Boolean = retryNotBeforeMs > nowMs
+
+    fun hasExhaustedAttempts(consecutiveFailures: Int): Boolean = consecutiveFailures >= MAX_RUN_ATTEMPTS
 }

@@ -47,6 +47,11 @@ skip it and stay green.
 
 ## Per release
 
+These steps are **one commit, and that commit is the release** — never bump the version in a feature
+commit. An untagged bump publishes nothing while burning the number: the API's per-layout SDK gate
+then withholds layouts from a build that does not exist, and the feature stays dark in the field
+even though the code is on `main`.
+
 1. Bump `VERSION_NAME` in `gradle.properties` (single source of truth; no `-SNAPSHOT`).
 2. Retitle the changes in `CHANGELOG.md` as `## [X.Y.Z] — YYYY-MM-DD` — the workflow extracts this
    section as the release notes and fails if it is missing.
