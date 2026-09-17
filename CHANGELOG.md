@@ -10,6 +10,17 @@ version: additive changes ship as minor releases, and anything breaking waits fo
 
 ## [Unreleased]
 
+### Fixed
+
+- **Nothing was sent from R8-shrunk release builds on current AGP.** WorkManager 2.9.x and the
+  Room 2.5 it brings keep `InputMerger` subclasses and `WorkDatabase_Impl` but not their no-arg
+  constructors, and R8 full mode on AGP 9 strips them. Depending on which Room version the app
+  resolves, either every WorkManager job fails with `Could not create Input Merger` — so the drain
+  never runs and no event, registration or engagement leaves the device — or the app crashes at
+  launch. The SDK logged nothing under `Arsel` in the first case. `core`'s consumer rules now keep
+  both constructors; apps need no change beyond upgrading. This also repairs WorkManager for the
+  rest of the host app, which was broken the same way.
+
 ## [1.3.0] — 2026-09-08
 
 ### Added

@@ -1,14 +1,15 @@
 [versions]
-agp = "8.5.2"
-kotlin = "2.0.21"
+# Deliberately current, not the SDK's own AGP: integrators ship with today's R8, and that is
+# what decides whether the SDK's consumer rules hold (see ci/release-smoke.sh).
+agp = "9.4.0"
 coreKtx = "1.13.1"
 appcompat = "1.7.0"
 activity = "1.9.3"
 firebaseBom = "33.5.1"
-googleServices = "4.4.2"
+googleServices = "4.4.4"
 # The locally-published Arsel Push SDK (./gradlew publishToMavenLocal in the SDK repo).
 # Must match VERSION_NAME in the SDK repo's gradle.properties.
-arselPush = "1.2.0"
+arselPush = "1.3.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -20,5 +21,4 @@ arsel-push-fcm = { module = "sa.arsel:push-fcm", version.ref = "arselPush" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }

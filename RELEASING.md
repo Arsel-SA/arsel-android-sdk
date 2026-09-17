@@ -52,7 +52,8 @@ commit. An untagged bump publishes nothing while burning the number: the API's p
 then withholds layouts from a build that does not exist, and the feature stays dark in the field
 even though the code is on `main`.
 
-1. Bump `VERSION_NAME` in `gradle.properties` (single source of truth; no `-SNAPSHOT`).
+1. Bump `VERSION_NAME` in `gradle.properties` (single source of truth; no `-SNAPSHOT`), and
+   `arselPush` in `sample/gradle/libs.versions.toml` to match — CI fails when they differ.
 2. Retitle the changes in `CHANGELOG.md` as `## [X.Y.Z] — YYYY-MM-DD` — the workflow extracts this
    section as the release notes and fails if it is missing.
 3. Commit, then tag and push:

@@ -201,7 +201,9 @@ The SDK has **no event callback by design** — it must never call into a host t
 ## CI
 
 `.github/workflows/ci.yml` checks out the SDK repo as a sibling, publishes it to mavenLocal, and
-builds `stagingDebug` with the fake `ci/google-services.ci.json`. The sibling checkout carries no
+builds `stagingDebug` with the fake `ci/google-services.ci.json`. A second job, `release-smoke`, builds
+`ciRelease` (R8-shrunk) and runs `ci/release-smoke.sh` on an emulator to prove the SDK's WorkManager
+drain survives shrinking. The sibling checkout carries no
 cross-repo token, so the workflow goes green once both repos are public.
 
 ## License

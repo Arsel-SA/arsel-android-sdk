@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.google.services) // requires app/google-services.json (see README)
 }
 
@@ -41,15 +40,36 @@ android {
             // org's pub_ key before using it, and treat changing it as a reviewed change.
             buildConfigField("String", "ARSEL_CLIENT_KEY", "\"REPLACE_WITH_PROD_CLIENT_KEY\"")
         }
+        // Release smoke test only (ci/release-smoke.sh). `.invalid` never resolves, so the drain
+        // provably runs and fails on the network without ever reaching a real backend.
+        create("ci") {
+            dimension = "backend"
+            applicationIdSuffix = ".ci"
+            resValue("string", "app_name", "Arsel Sample (ci)")
+            buildConfigField("String", "ARSEL_BASE_URL", "\"https://arsel-ci.invalid\"")
+            buildConfigField("String", "ARSEL_CLIENT_KEY", "\"pub_ci_smoke\"")
+        }
     }
 
-    buildFeatures { buildConfig = true }
+    buildTypes {
+        // Shrunk exactly like a store build: R8 full mode is where the SDK's consumer rules either
+        // hold or silently break WorkManager, and a debug build never runs R8 at all.
+        release {
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
+    buildFeatures {
+        buildConfig = true
+        resValues = true
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
 }
 
 dependencies {
