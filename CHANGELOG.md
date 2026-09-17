@@ -10,6 +10,8 @@ version: additive changes ship as minor releases, and anything breaking waits fo
 
 ## [Unreleased]
 
+## [1.3.1] — 2026-09-17
+
 ### Fixed
 
 - **Nothing was sent from R8-shrunk release builds on current AGP.** WorkManager 2.9.x and the
