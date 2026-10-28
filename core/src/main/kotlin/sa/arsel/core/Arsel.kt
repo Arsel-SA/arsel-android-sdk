@@ -278,6 +278,7 @@ public object Arsel {
     public fun reset(): Unit =
         guarded {
             Registry.state.clearForLogout()
+            Registry.controller.syncDeviceState()
         }
 
     /**

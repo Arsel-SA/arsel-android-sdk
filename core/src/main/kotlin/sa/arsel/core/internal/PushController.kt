@@ -57,9 +57,9 @@ internal class PushController(
                 return@launchGuarded
             }
             val device = DeviceInfo.collect(context, state.notificationPermissionRequested)
-            // Anything at all before a device secret exists must go via register, since register
-            // is what mints it.
-            if (state.deviceSecret == null) {
+            // Register mints the device secret, and is the only call that rebinds the contact after
+            // a logout.
+            if (state.needsRegistration()) {
                 register(force = false)
                 return@launchGuarded
             }

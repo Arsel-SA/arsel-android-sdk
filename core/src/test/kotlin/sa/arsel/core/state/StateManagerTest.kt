@@ -184,6 +184,31 @@ class StateManagerTest {
     }
 
     @Test
+    fun `a device with no secret yet must register`() {
+        assertTrue(state.needsRegistration())
+    }
+
+    @Test
+    fun `a registered device reports changes through state`() {
+        state.deviceSecret = "dsk_secret"
+        store.lastRegisteredHash = state.currentDeviceHash(DEVICE)
+
+        assertFalse(state.needsRegistration())
+    }
+
+    @Test
+    fun `a logged-out device re-registers instead of reporting state`() {
+        // A state report carries no anonymous id, so it would leave the subscription bound to the
+        // previous person's contact — the device would keep receiving their pushes.
+        state.deviceSecret = "dsk_secret"
+        store.lastRegisteredHash = state.currentDeviceHash(DEVICE)
+
+        state.clearForLogout()
+
+        assertTrue(state.needsRegistration())
+    }
+
+    @Test
     fun `a full reset yields a brand-new installation on the next registration`() {
         val installationId = state.installationId
         state.deviceSecret = "dsk_secret"

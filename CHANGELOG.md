@@ -10,6 +10,16 @@ version: additive changes ship as minor releases, and anything breaking waits fo
 
 ## [Unreleased]
 
+### Fixed
+
+- **A logged-out device kept receiving the previous user's pushes.** `reset()` rotated the
+  anonymous id, but the next sync reported it through the device-state call, which carries no
+  anonymous id — so the subscription stayed bound to the contact who logged out, and their
+  transactional and automation pushes kept reaching the handset. `reset()` now re-registers under
+  the new anonymous id, which moves the subscription to it. A sync after a logout also always
+  registers, so a process killed mid-logout still completes it on the next foreground. Nothing is
+  unsubscribed.
+
 ## [1.3.1] — 2026-09-17
 
 ### Fixed

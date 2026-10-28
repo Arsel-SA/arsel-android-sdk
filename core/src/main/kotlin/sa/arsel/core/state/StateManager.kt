@@ -91,6 +91,14 @@ internal class StateManager(private val store: ArselStore) {
         pushToken != null && store.lastRegisteredHash == currentDeviceHash(device)
 
     /**
+     * Whether the next report must be a registration rather than a state report. Only registration
+     * carries the anonymous id that binds the subscription to a contact, and [clearForLogout] drops
+     * the hash — so a logged-out device reported through state would stay bound to the previous
+     * person and keep receiving their pushes.
+     */
+    fun needsRegistration(): Boolean = deviceSecret == null || store.lastRegisteredHash == null
+
+    /**
      * Logout. Drops who the device belonged to but keeps the installation id and device secret:
      * the installation still exists on the backend, and the secret is issued exactly once — a
      * logout that forgot it would leave the device unable to unsubscribe or engagement ever again.

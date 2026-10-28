@@ -84,7 +84,8 @@ fun reset()
 ```
 
 Logout. Clears the contact binding, **rotates the anonymous id**, and leaves the installation
-registered and receiving.
+registered and receiving. The device re-registers under the new anonymous id, which is what moves
+its subscription off the previous person's contact.
 
 **Not an unsubscribe** — see [`optOut()`](#optout).
 
