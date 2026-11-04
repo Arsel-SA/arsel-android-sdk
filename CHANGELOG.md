@@ -19,6 +19,10 @@ version: additive changes ship as minor releases, and anything breaking waits fo
   the new anonymous id, which moves the subscription to it. A sync after a logout also always
   registers, so a process killed mid-logout still completes it on the next foreground. Nothing is
   unsubscribed.
+- **`isArselData()` missed the in-app sync ping.** It recognised notification envelopes only, so a
+  host that gates its own `FirebaseMessagingService` on it handled Arsel's `arsel_iam_sync` pushes
+  itself and in-app messages never refreshed. It now claims them too. Calling `handlePushData()`
+  first and falling through on `false` remains the recommended pattern.
 
 ## [1.3.1] — 2026-09-17
 

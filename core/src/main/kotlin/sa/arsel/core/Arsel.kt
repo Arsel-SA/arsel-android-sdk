@@ -359,9 +359,12 @@ public object Arsel {
         result.suppressionReason?.let { Registry.log.w("notification suppressed (${it.wire})") }
     }
 
-    /** Cheap check for hosts multiplexing one FirebaseMessagingService. */
+    /**
+     * Cheap check for hosts multiplexing one FirebaseMessagingService. Also true for the in-app
+     * sync ping, which is not a notification envelope but is still Arsel's to handle.
+     */
     @JvmStatic
-    public fun isArselData(data: Map<String, String>): Boolean = ArselPushMessage.isArselData(data)
+    public fun isArselData(data: Map<String, String>): Boolean = ArselPushMessage.isArselData(data) || !data[KEY_IAM_SYNC].isNullOrBlank()
 
     /**
      * Fire the engagement for a tapped notification (also for self-routing hosts).
