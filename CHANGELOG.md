@@ -10,6 +10,8 @@ version: additive changes ship as minor releases, and anything breaking waits fo
 
 ## [Unreleased]
 
+## [1.3.2] — 2026-11-04
+
 ### Fixed
 
 - **A logged-out device kept receiving the previous user's pushes.** `reset()` rotated the
