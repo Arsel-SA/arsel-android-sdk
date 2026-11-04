@@ -183,9 +183,7 @@ override fun onNewToken(token: String) {
 }
 
 override fun onMessageReceived(message: RemoteMessage) {
-    if (Arsel.isArselData(message.data)) {
-        Arsel.handlePushData(applicationContext, message.data)
-    } else {
+    if (!Arsel.handlePushData(applicationContext, message.data)) {
         // your push
     }
 }
@@ -195,8 +193,15 @@ override fun onDeletedMessages() {
 }
 ```
 
-`handlePushData` returns `true` if it claimed the message, so it never double-handles yours. In this
-mode you have the raw data map, so your own campaign key-value pairs are available to you directly.
+`handlePushData` returns `true` if it claimed the message, so it never double-handles yours. Call it
+first and fall through on `false`. If you gate on `Arsel.isArselData()` instead, use 1.3.2 or later:
+before that it recognised notification envelopes only, so Arsel's in-app sync pushes landed in your
+handler and in-app messages never refreshed. In this mode you have the raw data map, so your own
+campaign key-value pairs are available to you directly.
+
+Keep the SDK's App Startup `InitializationProvider` merged in (don't remove it with
+`tools:node="remove"`). It is how `initialize()` fetches the current FCM token, which matters for
+installs whose `onNewToken` already fired before you added Arsel — that callback won't fire again.
 
 ## Testing
 

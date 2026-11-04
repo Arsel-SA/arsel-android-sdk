@@ -29,7 +29,7 @@ still will.
 | `.defaultChannel(id, name)` | `arsel_default` / `Notifications` | Created at `initialize()` |
 | `.smallIcon(resId)` | app icon | White-on-transparent silhouette |
 | `.notificationColor(color)` | none | Accent colour |
-| `.logLevel(level)` | `WARN` | `VERBOSE`/`DEBUG`/`INFO`/`WARN`/`ERROR`/`NONE` |
+| `.logLevel(level)` | `WARN` | `LogLevel.VERBOSE`/`DEBUG`/`INFO`/`WARN`/`ERROR`/`NONE` (`import sa.arsel.core.log.LogLevel`) |
 | `.networkTimeoutMs(ms)` | `15_000` | Per request |
 
 `build()` throws `IllegalArgumentException` for a blank `clientKey` or a non-HTTPS `baseUrl` — the
@@ -52,6 +52,20 @@ Blank names and names starting `arsel.` are ignored. Names are truncated at 80 c
 Strings, numbers and booleans are sent as-is; everything else is `toString()`ed; nulls are omitted.
 
 Needs no push token, no permission, no Firebase. See [Events](events.md).
+
+---
+
+## `screen(name, properties = emptyMap())`
+
+```kotlin
+@JvmOverloads fun screen(name: String, properties: Map<String, Any?> = emptyMap())
+```
+
+Records a screen view as one `arsel.screen_view` event, with `name` in `screen_name`. It reaches
+segments and automations like any event, and it is the trigger for screen-scoped in-app messages.
+Not recorded automatically — call it from each screen's `onResume` (or your navigation listener).
+Don't also `track()` the same view: the backend treats a screen view and a custom event as
+different trigger types. A blank name is ignored.
 
 ---
 
@@ -185,7 +199,7 @@ Called for you by `push-fcm`. Public for hosts running their own `FirebaseMessag
 
 ```kotlin
 fun setPushToken(token: String)
-fun isArselData(data: Map<String, String>): Boolean
+fun isArselData(data: Map<String, String>): Boolean   // envelopes and the in-app sync ping (1.3.2+)
 fun handlePushData(context: Context, data: Map<String, String>): Boolean   // true = claimed
 fun handleDeletedMessages()
 fun handleNotificationOpen(intent: Intent)      // OPENED (body) or CLICKED (action button)
