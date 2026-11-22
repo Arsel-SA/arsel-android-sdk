@@ -70,6 +70,19 @@ class SessionTrackerTest {
     }
 
     @Test
+    fun `reports whether the foreground opened a session`() {
+        // The caller refreshes in-app itself only when no session_start did it, so a wrong answer
+        // either fetches the catalogue twice per launch or never on a resumed session.
+        val first = tracker.onForeground()
+        tracker.onBackground()
+        now += SessionTracker.SESSION_GAP_MS - 1
+        val resumed = tracker.onForeground()
+
+        assertTrue(first)
+        assertEquals(false, resumed)
+    }
+
+    @Test
     fun `a long absence ends the old session and starts a new one`() {
         tracker.onForeground()
         tracker.onBackground()

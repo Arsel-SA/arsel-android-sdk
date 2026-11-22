@@ -1,5 +1,6 @@
 package sa.arsel.core
 
+import android.app.ActivityManager
 import android.app.Application
 import android.content.Context
 import kotlinx.coroutines.CoroutineScope
@@ -54,6 +55,9 @@ internal object Registry {
     lateinit var scope: CoroutineScope
         private set
 
+    @Volatile
+    private var inAppFetchDeferred = false
+
     @Synchronized
     fun init(
         context: Context,
@@ -95,13 +99,25 @@ internal object Registry {
         // Ahead of the first session, so the install leads the timeline.
         runCatching { installs.reportIfNew(alreadyInstalled) }
             .onFailure { log.w("install report failed", it) }
-        // Opens the first session for a cold start, where no activity has been through
-        // onActivityStarted yet. Idempotent: the watcher's own foreground is then a no-op.
-        runCatching { sessions.onForeground() }
-            .onFailure { log.w("session start failed", it) }
-        runCatching { inApp.start() }
+        // A push, a scheduled job or a boot broadcast also cold-starts the process, with nobody
+        // looking at it. Initialized from Application.onCreate, the watcher opens the session when
+        // the first Activity starts; this covers a host that initializes once one is already up.
+        val visible = isProcessInForeground()
+        inAppFetchDeferred = !visible
+        if (visible) {
+            runCatching { sessions.onForeground() }
+                .onFailure { log.w("session start failed", it) }
+        }
+        runCatching { inApp.start(refresh = visible) }
             .onFailure { log.w("in-app start failed", it) }
     }
+
+    private fun isProcessInForeground(): Boolean =
+        runCatching {
+            val info = ActivityManager.RunningAppProcessInfo()
+            ActivityManager.getMyMemoryState(info)
+            info.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+        }.getOrDefault(false)
 
     /**
      * Best-effort: a host whose application context is not an [Application] (a heavily wrapped
@@ -119,7 +135,16 @@ internal object Registry {
                 clock = System::currentTimeMillis,
                 onForeground = {
                     controller.syncDeviceState()
-                    runCatching { sessions.onForeground() }.onFailure { log.w("session start failed", it) }
+                    val opened =
+                        runCatching { sessions.onForeground() }
+                            .onFailure { log.w("session start failed", it) }
+                            .getOrDefault(false)
+                    // A process started in the background skipped the fetch in init. A new session
+                    // makes up for it through its session_start; a resumed one emits none.
+                    if (inAppFetchDeferred) {
+                        inAppFetchDeferred = false
+                        if (!opened) runCatching { inApp.refresh() }.onFailure { log.w("in-app refresh failed", it) }
+                    }
                 },
                 onBackground = {
                     runCatching { sessions.onBackground() }.onFailure { log.w("session end failed", it) }

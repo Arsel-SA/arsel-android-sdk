@@ -10,6 +10,19 @@ version: additive changes ship as minor releases, and anything breaking waits fo
 
 ## [Unreleased]
 
+### Fixed
+
+- **A process started in the background opened a session and fetched in-app messages.** A push,
+  a scheduled job or a boot broadcast starts the app's process without showing it, and
+  `Arsel.initialize` treated every process start as an app open: it emitted
+  `arsel.session_start` (closing the previous session with `arsel.session_end` first) and fetched
+  the in-app catalogue. One broadcast push to an app's whole install base therefore became a
+  fabricated session per device — inflating session counts, firing app-open automations and
+  in-app triggers for people who never opened the app — and a burst of requests within seconds.
+  Sessions now open only when an Activity is on screen, as documented; a background start
+  loads the persisted catalogue without fetching it, and the first real foreground refreshes it.
+  Apps need no change beyond upgrading.
+
 ## [1.3.2] — 2026-11-04
 
 ### Fixed

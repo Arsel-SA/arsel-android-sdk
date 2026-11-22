@@ -43,13 +43,14 @@ internal class InAppController(
     /** Set once a display surface exists; absent in a host with no Activity lifecycle. */
     var presenter: ((InAppMessage) -> Unit)? = null
 
-    fun start() {
+    /** [refresh] false loads the persisted catalogue only: a background start has no one to show it to. */
+    fun start(refresh: Boolean = true) {
         synchronized(lock) {
             catalogue = InAppParser.parseCatalogue(store.inAppCatalogue, clock())
             state = readState()
             readSession()
         }
-        refresh()
+        if (refresh) refresh()
     }
 
     fun setSuppressed(value: Boolean) {

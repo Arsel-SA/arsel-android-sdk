@@ -23,7 +23,8 @@ internal class SessionTracker(
     private val events: EventController,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    fun onForeground() {
+    /** True when this opened a new session, i.e. emitted `arsel.session_start`. */
+    fun onForeground(): Boolean {
         val now = clock()
         val openedAt = store.sessionStartedAtMs
         val backgroundedAt = store.backgroundedAtMs
@@ -32,10 +33,10 @@ internal class SessionTracker(
             if (backgroundedAt != 0L) {
                 // Only a long enough absence rolls the open session over; anything shorter is the
                 // same session resuming, which is not an event.
-                if (now - backgroundedAt < SESSION_GAP_MS) return
+                if (now - backgroundedAt < SESSION_GAP_MS) return false
                 endSession(openedAt, backgroundedAt)
             } else if (now - openedAt <= MAX_SESSION_MS) {
-                return // still the same open session (watcher re-fire, or a quick crash relaunch)
+                return false // still the same open session (watcher re-fire, or a quick crash relaunch)
             } else {
                 // No background was ever recorded and the session is implausibly old: the process
                 // died while foregrounded. Its end was never observed, so it is dropped unclosed
@@ -47,6 +48,7 @@ internal class SessionTracker(
         store.sessionStartedAtMs = now
         store.backgroundedAtMs = 0L
         events.trackReserved(EventBodies.EVENT_SESSION_START, timestampMs = now)
+        return true
     }
 
     fun onBackground() {
