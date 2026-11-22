@@ -10,6 +10,8 @@ version: additive changes ship as minor releases, and anything breaking waits fo
 
 ## [Unreleased]
 
+## [1.3.3] — 2026-11-22
+
 ### Fixed
 
 - **A process started in the background opened a session and fetched in-app messages.** A push,
